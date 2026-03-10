@@ -1,0 +1,93 @@
+version: "3.9"
+
+services:
+  proxy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3002:80"
+      - "3003:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    env_file:
+      - ../.env
+    depends_on:
+      - web
+      - api
+
+  web:
+    build:
+      context: ../apps/web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: /api
+      API_INTERNAL_BASE_URL: http://api:8000/api
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ../apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    command: sh -lc "npm run build && npm run start"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ../services/api
+    env_file:
+      - ../.env
+    volumes:
+      - ../services/api:/app
+    depends_on:
+      - redis
+      - minio
+      - livekit
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /config/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881/udp"
+      - "7882:7882"
+    volumes:
+      - ./livekit.yaml:/config/livekit.yaml:ro
+
+  livekit-egress:
+    image: livekit/egress:latest
+    environment:
+      EGRESS_CONFIG_FILE: /config/egress.yaml
+    volumes:
+      - ./egress.yaml:/config/egress.yaml:ro
+    depends_on:
+      - livekit
+
+volumes:
+  minio-data:
+  caddy_data:
+  caddy_config:

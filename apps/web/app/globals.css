@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg-0: #f3f5fb;
+  --bg-1: #f9fafc;
+  --ink-1: #0f172a;
+  --ink-2: #334155;
+  --card: #ffffff;
+  --line: #dbe4f0;
+  --brand: #0f766e;
+  --brand-2: #155e75;
+}
+
+body {
+  margin: 0;
+  color: var(--ink-1);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(21, 94, 117, 0.15), transparent 35%),
+    radial-gradient(circle at 100% 0%, rgba(15, 118, 110, 0.12), transparent 35%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0));
+  min-height: 100vh;
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display), var(--font-body), "Segoe UI", sans-serif;
+}
+
+.app-card {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 1rem;
+  box-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.25);
+}
+
+.app-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8fbff;
+  color: var(--ink-2);
+}

@@ -1,0 +1,35 @@
+{
+  debug
+  default_sni {$APP_HOST:localhost}
+  servers {
+    protocols h1 h2
+  }
+}
+
+http://{$APP_HOST:localhost} {
+  encode gzip zstd
+
+  @livekit path /rtc/* /twirp/*
+  reverse_proxy @livekit livekit:7880
+
+  @api path /api/*
+  reverse_proxy @api api:8000
+
+  reverse_proxy web:3000
+}
+
+https://{$APP_HOST:localhost} {
+  tls internal {
+    curves x25519 secp256r1
+  }
+
+  encode gzip zstd
+
+  @livekit path /rtc/* /twirp/*
+  reverse_proxy @livekit livekit:7880
+
+  @api path /api/*
+  reverse_proxy @api api:8000
+
+  reverse_proxy web:3000
+}

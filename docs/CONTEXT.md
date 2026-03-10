@@ -1,0 +1,214 @@
+# MentorX Context
+
+## Purpose
+This file is the shared working context for the project. It should be updated on every meaningful implementation change.
+
+## Current Stack
+- Frontend: Next.js App Router + TypeScript + Tailwind
+- Backend: FastAPI + SQLAlchemy (SQLite dev)
+- Infra: Docker Compose (web, api, redis, minio, mailhog, livekit, livekit-egress)
+
+## Current Runtime URLs
+- Web (HTTP via proxy): http://localhost:3003
+- Web (HTTPS via proxy): https://localhost:3002
+- API (via proxy): http://localhost:3003/api
+- API Docs (via proxy): http://localhost:3003/api/docs
+
+## Implemented Modules
+- Auth (register/login + JWT)
+- User profile upsert
+- Mentor profile + admin verification update
+- Mentor discovery list
+- Booking create/list
+- Payment order/verify + webhook skeleton
+- Session join token + recording metadata
+- Upload signed URL + file metadata
+- Session disputes + admin dispute resolution
+- Notifications list
+- AI study plan + mentor recommendation
+- Admin APIs: overview, users, sessions, verifications, disputes
+- Frontend dashboards for student/mentor/admin + admin subpages
+
+## Known Gaps vs Full Product Plan
+- Real payment gateway lifecycle (actual Razorpay order/capture/webhook semantics)
+- Real LiveKit egress recording execution (currently metadata-driven flow)
+- Worker queue (Celery/RQ) for async jobs
+- Full search/filter UX and scheduling engine
+- Marketplace checkout + access control hardening
+- Advanced analytics and moderation workflows
+
+## Latest Changes (2026-03-10)
+- Added admin multi-page UI:
+  - /dashboard/admin
+  - /dashboard/admin/verifications
+  - /dashboard/admin/users
+  - /dashboard/admin/disputes
+  - /dashboard/admin/analytics
+- Added backend admin endpoints:
+  - GET /api/admin/users
+  - GET /api/admin/sessions
+- Improved mentor verification response payload for visible status updates.
+- Added Next.js API proxy integration to avoid fetch/CORS host issues.
+- Standardized role model to 4 roles: `student`, `mentor`, `manager`, `admin`.
+- Added manager dashboard: `/dashboard/manager`.
+- Updated dashboard menu system with role-aware navigation across student/mentor/manager/admin.
+- Extended admin access model so manager can handle verification/dispute/analytics workflows.
+- Added manager scope policy for mentor approvals:
+  - New model: `manager_scopes`
+  - New admin APIs: `GET /api/admin/manager-scopes`, `POST /api/admin/manager-scopes/update`
+  - Manager can approve mentor only when mentor categories overlap manager scope.
+- Added shared calendar workflow for all roles:
+  - New page: `/dashboard/calendar`
+  - APIs: `GET /api/sessions/calendar/list`, `POST /api/sessions`, `PUT /api/sessions/{id}`, `DELETE /api/sessions/{id}`, `POST /api/sessions/{id}/approve`
+  - Student requests call -> status `pending_mentor_approval` -> mentor approves -> status `pending_payment`.
+- Updated seeded demo users to valid email domains:
+  - `student.demo@exammentor.com`
+  - `mentor.demo@exammentor.com`
+  - `manager.demo@exammentor.com`
+  - `admin.demo@exammentor.com`
+- Added student preference-driven mentor matching:
+  - Student profile stores category/subject preferences in `target_exams`.
+  - Mentor listing supports multi-category filter via `categories` query.
+- Added resources marketplace purchase/access flow:
+  - `POST /api/resources/{id}/purchase`
+  - `GET /api/resources/mine/purchases`
+  - `GET /api/resources/{id}/access` (purchase-gated signed URL)
+  - New UI page: `/dashboard/resources`
+- Added homepage feature showcase for students, mentors, and operations.
+- Expanded manager/user management behavior:
+  - `GET /api/admin/users` now available to manager with category-scope filtering.
+  - Manager scope categories filter mentors and students under manager visibility.
+- Upgraded calendar UX to scheduler mode:
+  - Day/Week view switch
+  - Hourly grid slots
+  - Drag-and-drop reschedule (persists via `PUT /api/sessions/{id}`)
+  - Shared for all roles at `/dashboard/calendar`
+- Updated "Schedule New Call" form to include explicit `date` + `time` inputs (no implicit anchor-date dependency), with validation and Join Call actions retained in grid/upcoming panels.
+- Call Hub now includes embedded LiveKit call experience with `Join Call` / `Leave Call` controls, video/audio conference UI, and connection state feedback (`/dashboard/sessions/[sessionId]`).
+- Fixed transient web `500` on dashboard routes caused by stale/corrupt Next dev chunk cache (`Cannot find module './276.js'`); cache cleared inside web container and service restarted.
+- Fixed Session Hub websocket routing: chat socket now bypasses Next `/api/proxy` and connects directly to FastAPI WS endpoint via `apiWsUrl` (defaults to `ws://<host>:8002/api` with env overrides).
+- Hardened web dev runtime against stale `_next` chunk 404s: compose now uses dedicated `/app/.next` volume and startup clears `.next` contents before `next dev`.
+- Fixed LiveKit browser connectivity for local Docker mode: Session Hub now resolves Docker-internal `livekit` host in join-token response to browser-reachable host (`window.location.hostname`) before connecting.
+- Added two-step session approval flow:
+  - `pending_mentor_approval` -> mentor/admin approves -> `pending_manager_approval`
+  - `pending_manager_approval` -> manager/admin approves -> `pending_payment`
+- Added student access gating for call/chat/session hub:
+  - Student cannot open session details, messages, websocket chat, or join-token until both mentor and manager approvals are completed.
+  - Mentor/manager/admin can still review calls/chats.
+- Added admin/manager sessions workspace page: `/dashboard/admin/sessions` with direct `Open Call Hub` links for any visible session.
+- Updated manager/admin navigation to include Sessions and updated calendar filters/actions to show manager approval stage.
+- Added LAN/domain-safe object URL configuration:
+  - New backend setting: `S3_PUBLIC_ENDPOINT`
+  - Presigned GET/PUT and public URLs now use `S3_PUBLIC_ENDPOINT` (fallback to `S3_ENDPOINT`)
+  - Local `.env` set to `S3_PUBLIC_ENDPOINT=http://192.168.0.122:9000`
+- MentorX branding updates in UI shell:
+  - App title/nav/home updated to `MentorX`
+  - Refreshed global layout, typography, nav, and dashboard shell styling for less "blank/cold" appearance
+- Student calls list improved:
+  - Card view with date, time, duration, mentor, and status badges
+- Mentor workflow updates:
+  - Mentor dashboard now includes `Approve Request` action for `pending_mentor_approval`
+  - Mentor cards show schedule metadata and direct Session Hub links
+- Recording visibility policy added end-to-end:
+  - New model/table: `session_recording_visibility`
+  - New APIs:
+    - `GET /api/sessions/{session_id}/recording-visibility`
+    - `PUT /api/sessions/{session_id}/recording-visibility`
+  - `GET /api/sessions/{session_id}/recording` now enforces role visibility policy
+  - Mentor/manager/admin can manage visibility; mentor can toggle student visibility
+  - Session Hub UI now shows recording access + visibility controls
+- Session naming + session hub details:
+  - New sessions auto-generate meaningful title when default/blank (`MentorX Session <date-time UTC>`)
+  - Session Hub header now shows call details (title, date/time, duration, status, participants, notes)
+- Auth refresh stability fix:
+  - Added persisted-store hydration guard (`hasHydrated`) to prevent false logout redirect on page refresh
+  - Dashboard layout/shell now wait for hydration before auth redirect checks
+- Student session experience:
+  - Student sees join-focused flow; recording is passive and appears automatically when visibility allows
+- Data reset:
+  - Flushed all booked calls and related session data from SQLite (`sessions`, messages/files/recordings/disputes and session-linked payments)
+- LiveKit connection fix:
+  - Fixed invalid STUN server format in `infra/livekit.yaml` (`stun.l.google.com:19302` without `stun:` prefix)
+  - Restarted LiveKit to resolve websocket handshake failures during call join
+- 2026-03-10 client-stability hardening:
+  - Added shared `parseJsonSafe()` in web API helper (`apps/web/lib/api.ts`) and replaced direct `response.json()` usage across dashboard modules.
+  - Updated pages: admin overview/sessions/users/analytics/verifications/disputes, student dashboard, mentor dashboard, resources page, and calendar component.
+  - Hardened Session Hub websocket message parsing with try/catch to avoid runtime crash on malformed WS payloads.
+  - Rebuilt and restarted web container to publish updated chunks and reduce generic client-side exceptions from bad payload parsing.
+- 2026-03-10 auth UX fix:
+  - Centralized unauthorized handling in `authedFetch()` (`apps/web/lib/api.ts`): on `401`, clear persisted session and redirect user to `/login`.
+  - Prevents stale-token state where UI appears logged-in while API continuously returns unauthorized errors.
+- 2026-03-10 session approval routing fix:
+  - Updated backend session approval flow (`services/api/app/routers/sessions.py`) so manager approval is required only when at least one manager scope matches mentor/student categories for that session.
+  - If no matching manager scope exists, mentor/admin approval now advances session directly to `pending_payment` (no manager-block).
+- 2026-03-10 final approval policy update:
+  - Removed manager requirement from call booking approvals entirely.
+  - Session flow is now strictly: `pending_mentor_approval` -> mentor approval -> `confirmed` (or admin can directly set `confirmed`).
+  - Payment is not required for calls in current system mode.
+  - Migrated existing `pending_manager_approval` and `pending_payment` rows to `confirmed` to unblock already scheduled calls.
+- 2026-03-10 session hub quality fixes:
+  - Added `GET /api/sessions/{session_id}/participants` returning participant display names (email-based) for session hub rendering.
+  - Session Hub now displays participant names in header and chat instead of raw IDs.
+  - Recording fetch on Session Hub is now status-aware; avoids noisy 404 calls before recording lifecycle states.
+  - LiveKit join now degrades on non-secure HTTP by disabling local media publish and showing explicit HTTPS/localhost guidance to avoid `getUserMedia` crashes.
+- 2026-03-10 mentor-call UX fixes:
+  - Mentor dashboard now includes explicit `Join Call` action for `confirmed` / `ready_to_join` / `in_progress` sessions.
+  - Mentor dashboard shows student display name (via session participants API) instead of raw student UUID.
+  - Session Hub now blocks Join on insecure HTTP with clear message (prevents runtime `getUserMedia` exception spam).
+  - Recording prefetch no longer runs for `ready_to_join`, reducing 404 noise before recording exists.
+- 2026-03-10 infra + categories + resources update:
+  - Added Dockerized TLS reverse proxy (`infra/proxy` with Caddy) and routing:
+    - `/api/*` -> FastAPI
+    - all other paths -> Next.js web app
+    - ports exposed: `443`, `80`, plus compatibility mappings `3002->443` and `3003->80`
+  - Web app API base switched to `/api` behind proxy.
+  - Added category master data model/API:
+    - model: `Category`
+    - routes: `GET /api/categories`, `POST /api/categories` (admin), `PUT /api/categories/{id}` (admin)
+    - seeded 5 default Indian competitive categories: UPSC CSE, JEE Main & Advanced, NEET UG, GATE, CAT.
+  - Enforced predefined categories for student and mentor profiles (only active category slugs are persisted).
+  - Added admin category management UI: `/dashboard/admin/categories` with Font Awesome icons.
+  - Updated student and mentor category selection UIs to use predefined category list.
+  - Manager scope editor now supports selecting from predefined categories.
+  - Added resource upload-sign API (`POST /api/resources/upload-sign`) and enabled resource publishing for `mentor`, `manager`, and `admin`.
+  - Added manager dashboard resource publishing form (category from predefined list + file upload + price + description).
+  - Added mentor dashboard resource publishing form with same predefined-category/file workflow.
+  - Added Headless UI + Heroicons navbar template integration (`Disclosure`, `Menu`, mobile toggle icons, profile menu) in `components/nav.tsx`.
+  - Enabled Font Awesome stylesheet globally for icon usage in new UI sections.
+- 2026-03-10 uploaded-resource management (mentor/manager/admin):
+  - Added backend resource lifecycle fields:
+    - `resources.is_active` (default `true`)
+    - `resources.is_deleted` (default `false`)
+    - bootstrap backfill for existing SQLite tables via `PRAGMA table_info + ALTER TABLE`.
+  - Added resource owner management APIs:
+    - `GET /api/resources/mine/uploaded` (owner/admin listing, excludes soft-deleted)
+    - `PUT /api/resources/{id}` (owner/admin edit title/description/category/price and enable/disable)
+    - `DELETE /api/resources/{id}` (owner/admin soft-delete)
+  - Hardened marketplace behavior:
+    - `GET /api/resources` now returns only active, non-deleted resources.
+    - `POST /api/resources/{id}/purchase` rejects inactive/deleted resources.
+    - `GET /api/resources/{id}/access` rejects deleted resources.
+  - Added "My Uploaded Resources" UI sections on:
+    - `/dashboard/mentor`
+    - `/dashboard/manager`
+    - Includes inline price edit (on blur), enable/disable toggle, and delete actions.
+- 2026-03-10 TLS routing hardening:
+  - Updated `infra/Caddyfile` to explicit dual-site config:
+    - `http://{APP_HOST}` now redirects to `https://{APP_HOST}`
+    - `https://{APP_HOST}` serves app with `tls internal`
+  - Restarted proxy to apply HTTPS-only routing policy and reduce LAN protocol mismatch errors.
+  - Added Caddy global `servers { protocols h1 h2 }` to disable HTTP/3/QUIC and improve browser compatibility on LAN/self-signed HTTPS endpoints.
+- 2026-03-11 live-call + recording visibility policy updates:
+  - Fixed HTTPS LiveKit mixed-content path by adding Caddy `default_sni` and LiveKit signaling proxy routes:
+    - `@livekit path /rtc/* /twirp/*` -> `livekit:7880`
+    - supports secure signaling via `wss://<host>:3003`.
+  - Added backend `LIVEKIT_PUBLIC_URL` support; session join-token now returns `livekit_public_url` when configured.
+  - Session Hub frontend migrated from LiveKit UI embed to direct 1:1 WebRTC call UI (local/remote video elements) using existing session websocket for signaling:
+    - websocket event passthrough added for `webrtc_offer`, `webrtc_answer`, `webrtc_ice`, `webrtc_hangup`.
+  - Recording visibility policy tightened:
+    - student visibility is now always enabled and cannot be disabled by mentor/manager/admin.
+    - backend enforces `visible_to_student=true` on create/update and auto-corrects legacy false rows when policy is loaded.
+    - session hub visibility UI now removes student hide toggle and shows fixed-policy message.
+
+## Update Rule
+Whenever code changes are made, append a short bullet in "Latest Changes" with date and impacted modules/routes.
