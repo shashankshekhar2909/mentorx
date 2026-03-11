@@ -44,17 +44,17 @@ export default function HomePage() {
         <div className="absolute -left-12 bottom-0 h-52 w-52 rounded-full bg-teal-300/20 blur-3xl" />
         <div className="relative">
           <p className="inline-flex rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wider">
-            MentorX Platform
+            mentorXAI Platform
           </p>
           <h1 className="mt-4 max-w-4xl text-4xl font-extrabold leading-tight md:text-6xl">
             Mentorship marketplace for serious exam preparation.
           </h1>
           <p className="mt-4 max-w-3xl text-base text-white/85 md:text-lg">
-            MentorX connects students, mentors, managers, and admins in one product workflow for discovery,
+            mentorXAI connects students, mentors, managers, and admins in one product workflow for discovery,
             scheduling, live sessions, resources, and operations.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/register" className="rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-slate-900">Join MentorX</Link>
+            <Link href="/register" className="rounded-xl bg-white px-5 py-2.5 text-sm font-bold text-slate-900">Join mentorXAI</Link>
             <Link href="/login" className="rounded-xl border border-white/40 bg-white/10 px-5 py-2.5 text-sm font-bold text-white">Login</Link>
           </div>
         </div>

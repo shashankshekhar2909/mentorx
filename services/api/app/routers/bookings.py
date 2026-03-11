@@ -16,7 +16,7 @@ def _build_session_title(raw_title: str | None, starts_at) -> str:
     title = (raw_title or "").strip()
     if title and title.lower() not in {"mentorship session", "student call request"}:
         return title
-    return f"MentorX Session {starts_at.strftime('%d %b %Y %H:%M UTC')}"
+    return f"session_{starts_at.strftime('%Y-%m-%d_%H-%M_utc')}"
 
 
 @router.post("", response_model=SessionOut)

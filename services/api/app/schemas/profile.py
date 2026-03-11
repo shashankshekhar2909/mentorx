@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from ..core.rbac import Role
+
 
 class ProfileUpsert(BaseModel):
     full_name: str | None = None
@@ -14,3 +16,9 @@ class ProfileOut(ProfileUpsert):
 
     class Config:
         from_attributes = True
+
+
+class ProfileIdentityOut(ProfileOut):
+    email: str
+    role: Role
+    display_name: str

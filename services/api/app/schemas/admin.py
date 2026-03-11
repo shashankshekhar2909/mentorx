@@ -21,3 +21,14 @@ class DisputeUpdate(BaseModel):
 class ManagerScopeUpdate(BaseModel):
     manager_user_id: str
     categories: list[str]
+
+
+class PaginationMeta(BaseModel):
+    page: int
+    page_size: int
+    total: int
+
+
+class DashboardSummaryOut(BaseModel):
+    sessions: list[dict]
+    recordings: list[dict]

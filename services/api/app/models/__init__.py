@@ -13,6 +13,8 @@ from .review import MentorReview
 from .dispute import Dispute, DisputeStatus
 from .manager_scope import ManagerScope
 from .category import Category
+from .chat_thread import ChatThread, ChatThreadStatus
+from .chat_message import ChatMessage
 
 __all__ = [
     "User",
@@ -36,4 +38,7 @@ __all__ = [
     "DisputeStatus",
     "ManagerScope",
     "Category",
+    "ChatThread",
+    "ChatThreadStatus",
+    "ChatMessage",
 ]

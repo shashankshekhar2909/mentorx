@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from ..models.session_recording import RecordingStatus
@@ -13,12 +15,17 @@ class RecordingCompleteRequest(BaseModel):
 
 
 class RecordingOut(BaseModel):
+    id: str
     session_id: str
+    attempt_number: int
     egress_id: str | None
     object_key: str | None
     playback_url: str | None
     status: RecordingStatus
     error_message: str | None
+    created_at: datetime
+    deleted_at: datetime | None = None
+    deleted_by_user_id: str | None = None
 
     class Config:
         from_attributes = True

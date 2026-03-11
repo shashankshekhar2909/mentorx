@@ -11,4 +11,5 @@ export type Session = {
   refreshToken: string;
   role: Role;
   email: string;
+  displayName: string;
 };

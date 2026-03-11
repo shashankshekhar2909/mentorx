@@ -59,10 +59,12 @@ export async function register(email: string, password: string, role: Role): Pro
 
 export function extractSession(tokens: TokenPair) {
   const payload = decodePayload(tokens.access_token);
+  const email = payload.sub ?? "unknown";
   return {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     role: payload.role ?? "student",
-    email: payload.sub ?? "unknown"
+    email,
+    displayName: email,
   };
 }

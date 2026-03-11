@@ -5,15 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
-
-type Mentor = {
-  user_id: string;
-  headline: string | null;
-  exams: string | null;
-  years_experience: number;
-  hourly_price: number;
-  rating_avg: number;
-};
+import { formatIstDateTime } from "@/lib/presentation";
 
 type SessionRow = {
   id: string;
@@ -22,17 +14,24 @@ type SessionRow = {
   starts_at: string;
   duration_minutes: number;
   mentor_id: string;
+  mentor_name?: string;
 };
 
 type StudentRecording = {
+  id?: string;
   session_id: string;
+  attempt_number?: number;
   title: string;
   starts_at: string;
   status: string;
-  playback_url: string;
+  playback_url: string | null;
+  error_message?: string | null;
 };
 
 function statusLabel(status: string): string {
+  if (status === "recording") return "Recording In Progress";
+  if (status === "queued") return "Preparing Recording";
+  if (status === "uploaded") return "Ready to Watch";
   return status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
@@ -47,22 +46,10 @@ function statusClass(status: string): string {
 export default function StudentDashboardPage() {
   const [categories, setCategories] = useState("");
   const [categoryOptions, setCategoryOptions] = useState<Array<{ slug: string; name: string }>>([]);
-  const [mentors, setMentors] = useState<Mentor[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [notifications, setNotifications] = useState<{ id: string; title: string; message: string }[]>([]);
   const [recordings, setRecordings] = useState<StudentRecording[]>([]);
-  const [selectedMentor, setSelectedMentor] = useState<string>("");
-  const [time, setTime] = useState("10:00");
-  const [loading, setLoading] = useState(false);
   const [newCategory, setNewCategory] = useState("");
-  const mentorMap = useMemo(
-    () =>
-      mentors.reduce<Record<string, Mentor>>((acc, mentor) => {
-        acc[mentor.user_id] = mentor;
-        return acc;
-      }, {}),
-    [mentors],
-  );
   const sortedSessions = useMemo(
     () => [...sessions].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()),
     [sessions],
@@ -76,21 +63,6 @@ export default function StudentDashboardPage() {
     [categories],
   );
   const availableSuggestions = categoryOptions.filter((item) => !categoryList.includes(item.slug));
-
-  const [dateFrom, dateTo] = useMemo(() => {
-    const now = new Date();
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0));
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59));
-    return [start.toISOString(), end.toISOString()];
-  }, []);
-
-  async function refreshMentors(activeCategories: string) {
-    const mentorResp = await authedFetch(`/mentors?categories=${encodeURIComponent(activeCategories)}`);
-    const m = await parseJsonSafe(mentorResp);
-    const mentorRows = Array.isArray(m) ? m : [];
-    setMentors(mentorRows);
-    if (mentorRows.length > 0 && !selectedMentor) setSelectedMentor(mentorRows[0].user_id);
-  }
 
   async function refreshAll() {
     const categoryResp = await authedFetch("/categories");
@@ -106,33 +78,16 @@ export default function StudentDashboardPage() {
     const profileCategories = profile.target_exams || categories;
     setCategories(profileCategories);
 
-    const [sessionsResp, notificationsResp] = await Promise.all([
-      authedFetch(`/sessions/calendar/list?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`),
+    const [summaryResp, notificationsResp] = await Promise.all([
+      authedFetch("/users/me/dashboard-summary?session_limit=8&recording_limit=8"),
       authedFetch("/notifications/mine"),
     ]);
-    const [s, n] = await Promise.all([parseJsonSafe(sessionsResp), parseJsonSafe(notificationsResp)]);
-    const sessionRows = Array.isArray(s) ? s : [];
+    const [summary, n] = await Promise.all([parseJsonSafe(summaryResp), parseJsonSafe(notificationsResp)]);
+    const sessionRows = Array.isArray(summary?.sessions) ? summary.sessions : [];
     setSessions(sessionRows);
     setNotifications(Array.isArray(n) ? n : []);
-    const recordingRows = (
-      await Promise.all(
-        sessionRows.map(async (row: SessionRow) => {
-          const recResp = await authedFetch(`/sessions/${row.id}/recording`);
-          if (!recResp.ok) return null;
-          const rec = await parseJsonSafe(recResp);
-          if (!rec?.playback_url) return null;
-          return {
-            session_id: row.id,
-            title: row.title,
-            starts_at: row.starts_at,
-            status: String(rec.status ?? "uploaded"),
-            playback_url: String(rec.playback_url),
-          } as StudentRecording;
-        }),
-      )
-    ).filter(Boolean) as StudentRecording[];
+    const recordingRows = (Array.isArray(summary?.recordings) ? summary.recordings : []) as StudentRecording[];
     setRecordings(recordingRows);
-    await refreshMentors(profileCategories);
   }
 
   async function savePreferences() {
@@ -141,7 +96,6 @@ export default function StudentDashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target_exams: categories }),
     });
-    await refreshMentors(categories);
   }
 
   function setCategoryList(next: string[]) {
@@ -159,31 +113,6 @@ export default function StudentDashboardPage() {
 
   function removeCategory(value: string) {
     setCategoryList(categoryList.filter((item) => item !== value));
-  }
-
-  async function requestCall() {
-    if (!selectedMentor) return;
-    setLoading(true);
-    try {
-      const [h, m] = time.split(":").map(Number);
-      const start = new Date();
-      start.setUTCDate(start.getUTCDate() + 2);
-      start.setUTCHours(h, m, 0, 0);
-
-      await authedFetch("/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mentor_id: selectedMentor,
-          title: "Student call request",
-          starts_at: start.toISOString(),
-          duration_minutes: 60,
-        }),
-      });
-      await refreshAll();
-    } finally {
-      setLoading(false);
-    }
   }
 
   useEffect(() => {
@@ -255,29 +184,12 @@ export default function StudentDashboardPage() {
         </article>
 
         <article className="app-card p-5">
-          <h2 className="text-lg font-semibold">Related Mentors</h2>
-          <p className="mt-1 text-sm text-slate-600">Mentors filtered by your categories/subjects.</p>
-          <select
-            className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2"
-            value={selectedMentor}
-            onChange={(e) => setSelectedMentor(e.target.value)}
-          >
-            {mentors.map((mentor) => (
-              <option key={mentor.user_id} value={mentor.user_id}>
-                {mentor.headline ?? mentor.user_id} | {mentor.exams ?? "-"}
-              </option>
-            ))}
-          </select>
-          <div className="mt-3 flex gap-2">
-            <input className="rounded-lg border border-slate-300 px-3 py-2" value={time} onChange={(e) => setTime(e.target.value)} type="time" />
-            <button
-              type="button"
-              onClick={requestCall}
-              disabled={loading || !selectedMentor}
-              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {loading ? "Sending..." : "Request Call"}
-            </button>
+          <h2 className="text-lg font-semibold">Mentor Network</h2>
+          <p className="mt-1 text-sm text-slate-600">Browse mentors by category, send connection requests, and unlock chat/call after acceptance.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href="/dashboard/student/mentors" className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white">
+              Open Mentor Directory
+            </a>
           </div>
         </article>
 
@@ -309,7 +221,7 @@ export default function StudentDashboardPage() {
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
                     <p className="text-slate-500">With</p>
-                    <p className="font-semibold text-slate-800">{mentorMap[item.mentor_id]?.headline || `Mentor ${item.mentor_id.slice(0, 6)}`}</p>
+                    <p className="font-semibold text-slate-800">{item.mentor_name ?? `Mentor ${item.mentor_id.slice(0, 6)}`}</p>
                   </div>
                   <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
                     <p className="text-slate-500">Duration</p>
@@ -344,10 +256,25 @@ export default function StudentDashboardPage() {
             {recordings.map((item) => (
               <div key={item.session_id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="font-semibold">{item.title}</p>
-                <p className="text-xs text-slate-500">{new Date(item.starts_at).toLocaleString()} • {item.status}</p>
-                <a className="mt-2 inline-flex rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white" href={item.playback_url} target="_blank" rel="noreferrer">
-                  Open Recording
-                </a>
+                <p className="text-xs text-slate-500">{formatIstDateTime(item.starts_at)} • {statusLabel(item.status)}</p>
+                {item.playback_url ? (
+                  <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-black">
+                    <video
+                      src={item.playback_url}
+                      controls
+                      controlsList="nodownload noplaybackrate"
+                      className="h-44 w-full bg-black"
+                      preload="metadata"
+                      onContextMenu={(e) => e.preventDefault()}
+                    />
+                  </div>
+                ) : (
+                  <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
+                    {item.status === "failed"
+                      ? item.error_message || "Recording failed for this session."
+                      : "Recording is being prepared and will appear here automatically."}
+                  </div>
+                )}
               </div>
             ))}
             {recordings.length === 0 && <p className="text-slate-500">No recordings available yet.</p>}

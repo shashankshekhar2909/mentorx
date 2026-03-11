@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,10 +11,14 @@ from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
 from ..models.payment import Payment, PaymentStatus
 from ..models.profile import Profile
 from ..models.session import Session as MentorshipSession
+from ..models.session_recording import SessionRecording
+from ..models.session_recording_visibility import SessionRecordingVisibility
 from ..models.user import User
 from ..schemas.admin import DisputeUpdate, ManagerScopeUpdate, MentorVerificationUpdate
+from ..services.recording_service import RecordingService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+recording_service = RecordingService()
 
 
 def _require_admin(user: User) -> None:
@@ -31,6 +35,31 @@ def _parse_categories_csv(value: str | None) -> set[str]:
     if not value:
         return set()
     return {item.strip().lower() for item in value.split(",") if item.strip()}
+
+
+def _display_label(user_rows: dict[str, User], profile_rows: dict[str, Profile], user_id: str) -> str:
+    profile = profile_rows.get(user_id)
+    if profile and profile.full_name and profile.full_name.strip():
+        return profile.full_name.strip()
+    user = user_rows.get(user_id)
+    return user.email if user else user_id
+
+
+def _session_payload(row: MentorshipSession, user_rows: dict[str, User], profile_rows: dict[str, Profile]) -> dict:
+    return {
+        "id": row.id,
+        "student_id": row.student_id,
+        "mentor_id": row.mentor_id,
+        "student_name": _display_label(user_rows, profile_rows, row.student_id),
+        "mentor_name": _display_label(user_rows, profile_rows, row.mentor_id),
+        "student_email": user_rows.get(row.student_id).email if user_rows.get(row.student_id) else row.student_id,
+        "mentor_email": user_rows.get(row.mentor_id).email if user_rows.get(row.mentor_id) else row.mentor_id,
+        "title": row.title,
+        "status": row.status,
+        "starts_at": row.starts_at,
+        "duration_minutes": row.duration_minutes,
+        "is_instant": row.is_instant,
+    }
 
 
 @router.get("/overview")
@@ -165,11 +194,12 @@ def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_u
 def list_sessions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _require_admin_or_manager(user)
     rows = db.query(MentorshipSession).order_by(MentorshipSession.starts_at.desc()).all()
+    user_rows = {row.id: row for row in db.query(User).all()}
+    profile_rows = {row.user_id: row for row in db.query(Profile).all()}
     if user.role == Role.manager:
         scope = db.query(ManagerScope).filter(ManagerScope.user_id == user.id).first()
         allowed = _parse_categories_csv(scope.categories_csv if scope else "")
         mentor_rows = {row.user_id: row for row in db.query(MentorProfile).all()}
-        profile_rows = {row.user_id: row for row in db.query(Profile).all()}
         filtered: list[MentorshipSession] = []
         for row in rows:
             mentor_categories = _parse_categories_csv((mentor_rows.get(row.mentor_id).exams if mentor_rows.get(row.mentor_id) else ""))
@@ -177,17 +207,108 @@ def list_sessions(db: Session = Depends(get_db), user: User = Depends(get_curren
             if mentor_categories & allowed or student_categories & allowed:
                 filtered.append(row)
         rows = filtered
-    return [
-        {
-            "id": row.id,
-            "student_id": row.student_id,
-            "mentor_id": row.mentor_id,
-            "title": row.title,
-            "status": row.status,
-            "starts_at": row.starts_at,
+    return [_session_payload(row, user_rows, profile_rows) for row in rows]
+
+
+@router.get("/sessions/paginated")
+def list_sessions_paginated(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    student_id: str | None = Query(default=None),
+    mentor_id: str | None = Query(default=None),
+    status_value: str | None = Query(default=None, alias="status"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(user)
+    rows = db.query(MentorshipSession).order_by(MentorshipSession.starts_at.desc()).all()
+    user_rows = {row.id: row for row in db.query(User).all()}
+    profile_rows = {row.user_id: row for row in db.query(Profile).all()}
+    if user.role == Role.manager:
+        scope = db.query(ManagerScope).filter(ManagerScope.user_id == user.id).first()
+        allowed = _parse_categories_csv(scope.categories_csv if scope else "")
+        mentor_rows = {row.user_id: row for row in db.query(MentorProfile).all()}
+        rows = [
+            row for row in rows
+            if _parse_categories_csv((mentor_rows.get(row.mentor_id).exams if mentor_rows.get(row.mentor_id) else "")) & allowed
+            or _parse_categories_csv((profile_rows.get(row.student_id).target_exams if profile_rows.get(row.student_id) else "")) & allowed
+        ]
+    if student_id:
+        rows = [row for row in rows if row.student_id == student_id]
+    if mentor_id:
+        rows = [row for row in rows if row.mentor_id == mentor_id]
+    if status_value:
+        rows = [row for row in rows if str(row.status) == status_value]
+    total = len(rows)
+    start = (page - 1) * page_size
+    items = [_session_payload(row, user_rows, profile_rows) for row in rows[start:start + page_size]]
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+@router.get("/recordings")
+def list_recordings_paginated(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    student_id: str | None = Query(default=None),
+    mentor_id: str | None = Query(default=None),
+    status_value: str | None = Query(default=None, alias="status"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(user)
+    sessions = db.query(MentorshipSession).order_by(MentorshipSession.starts_at.desc()).all()
+    user_rows = {row.id: row for row in db.query(User).all()}
+    profile_rows = {row.user_id: row for row in db.query(Profile).all()}
+    visibility_rows = {row.session_id: row for row in db.query(SessionRecordingVisibility).all()}
+    session_map = {row.id: row for row in sessions}
+    if user.role == Role.manager:
+        scope = db.query(ManagerScope).filter(ManagerScope.user_id == user.id).first()
+        allowed = _parse_categories_csv(scope.categories_csv if scope else "")
+        mentor_rows = {row.user_id: row for row in db.query(MentorProfile).all()}
+        session_map = {
+            row.id: row for row in sessions
+            if _parse_categories_csv((mentor_rows.get(row.mentor_id).exams if mentor_rows.get(row.mentor_id) else "")) & allowed
+            or _parse_categories_csv((profile_rows.get(row.student_id).target_exams if profile_rows.get(row.student_id) else "")) & allowed
         }
-        for row in rows
+    recordings = [
+        row for row in db.query(SessionRecording).order_by(SessionRecording.created_at.desc(), SessionRecording.updated_at.desc()).all()
+        if row.session_id in session_map and row.deleted_at is None
     ]
+    items: list[dict] = []
+    for row in recordings:
+        session = session_map.get(row.session_id)
+        if not session:
+            continue
+        if student_id and session.student_id != student_id:
+            continue
+        if mentor_id and session.mentor_id != mentor_id:
+            continue
+        if status_value and str(row.status) != status_value:
+            continue
+        policy = visibility_rows.get(row.session_id)
+        items.append(
+            {
+                "id": row.id,
+                "session_id": row.session_id,
+                "attempt_number": row.attempt_number,
+                "status": row.status,
+                "playback_url": recording_service.storage.presign_get(row.object_key) if row.object_key else None,
+                "created_at": row.created_at,
+                "starts_at": session.starts_at,
+                "title": session.title,
+                "student_id": session.student_id,
+                "mentor_id": session.mentor_id,
+                "student_name": _display_label(user_rows, profile_rows, session.student_id),
+                "mentor_name": _display_label(user_rows, profile_rows, session.mentor_id),
+                "student_email": user_rows.get(session.student_id).email if user_rows.get(session.student_id) else session.student_id,
+                "mentor_email": user_rows.get(session.mentor_id).email if user_rows.get(session.mentor_id) else session.mentor_id,
+                "visible_to_student": policy.visible_to_student if policy else True,
+                "error_message": row.error_message,
+            }
+        )
+    total = len(items)
+    start = (page - 1) * page_size
+    return {"items": items[start:start + page_size], "page": page, "page_size": page_size, "total": total}
 
 
 @router.get("/manager-scopes")

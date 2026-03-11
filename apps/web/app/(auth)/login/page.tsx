@@ -38,9 +38,9 @@ export default function LoginPage() {
   return (
     <section className="mx-auto max-w-md space-y-4">
       <div className="rounded-2xl bg-gradient-to-r from-teal-700 to-cyan-700 p-5 text-white shadow-lg">
-        <p className="text-xs font-semibold uppercase tracking-wider text-white/80">MentorX</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-white/80">mentorXAI</p>
         <h1 className="mt-1 text-2xl font-extrabold">Sign in</h1>
-        <p className="mt-1 text-sm text-white/85">Use your registered MentorX account.</p>
+        <p className="mt-1 text-sm text-white/85">Use your registered mentorXAI account.</p>
       </div>
       <div className="app-card p-6">
       <form className="mt-6 space-y-4" onSubmit={handleSubmit((values) => mutation.mutate(values))}>

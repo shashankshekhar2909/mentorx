@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True)
 
-    app_name: str = "MentorX API"
+    app_name: str = "mentorXAI API"
     environment: str = "development"
     api_prefix: str = "/api"
     cors_origins: str = "http://localhost:3000,http://localhost:3002"

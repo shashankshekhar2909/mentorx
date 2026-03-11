@@ -29,7 +29,7 @@ services:
       - ../apps/web:/app
       - /app/node_modules
       - /app/.next
-    command: sh -lc "npm run build && npm run start"
+    command: sh -lc "npm run dev -- -p 3000"
     depends_on:
       - api
 

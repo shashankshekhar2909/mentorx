@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
@@ -10,9 +11,10 @@ from ..core.deps import get_current_user
 from ..core.rbac import Role
 from ..models.dispute import Dispute
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
+from ..models.profile import Profile
 from ..models.session import Session as MentorshipSession, SessionStatus
 from ..models.session_message import SessionMessage
-from ..models.session_recording import SessionRecording
+from ..models.session_recording import RecordingStatus, SessionRecording
 from ..models.session_recording_visibility import SessionRecordingVisibility
 from ..models.user import User
 from ..schemas.admin import DisputeCreate
@@ -40,16 +42,18 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.connections: dict[str, list[dict]] = {}
 
-    async def connect(self, session_id: str, websocket: WebSocket, user: User) -> None:
+    async def connect(self, session_id: str, websocket: WebSocket, user: User, user_name: str) -> dict:
         await websocket.accept()
-        self.connections.setdefault(session_id, []).append(
-            {
-                "ws": websocket,
-                "user_id": user.id,
-                "user_name": user.email,
-                "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
-            }
-        )
+        entry = {
+            "connection_id": str(uuid4()),
+            "ws": websocket,
+            "user_id": user.id,
+            "user_name": user_name,
+            "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            "joined_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.connections.setdefault(session_id, []).append(entry)
+        return entry
 
     def disconnect(self, session_id: str, websocket: WebSocket) -> None:
         if session_id in self.connections:
@@ -76,9 +80,11 @@ class ConnectionManager:
     def presence(self, session_id: str) -> list[dict]:
         return [
             {
+                "connection_id": entry.get("connection_id"),
                 "user_id": entry.get("user_id"),
                 "user_name": entry.get("user_name"),
                 "user_role": entry.get("user_role"),
+                "joined_at": entry.get("joined_at"),
             }
             for entry in self.connections.get(session_id, [])
         ]
@@ -95,17 +101,14 @@ def _build_session_title(raw_title: str | None, starts_at: datetime) -> str:
     title = (raw_title or "").strip()
     if title and title.lower() not in {"mentorship session", "student call request"}:
         return title
-    return f"MentorX Session {starts_at.strftime('%d %b %Y %H:%M UTC')}"
+    return f"session_{starts_at.strftime('%Y-%m-%d_%H-%M_utc')}"
 
 
 def _can_student_review_or_join(session: MentorshipSession, user: User) -> bool:
     if user.role in (Role.admin, Role.manager, Role.mentor):
         return True
     if user.role == Role.student and session.student_id == user.id:
-        return session.status not in (
-            SessionStatus.pending_mentor_approval,
-            SessionStatus.pending_manager_approval,
-        )
+        return session.status not in (SessionStatus.pending_mentor_approval, SessionStatus.cancelled, SessionStatus.no_show)
     return False
 
 
@@ -119,6 +122,44 @@ def _can_view_recording(session: MentorshipSession, user: User, policy: SessionR
     if user.role == Role.student:
         return user.id == session.student_id and policy.visible_to_student and _can_student_review_or_join(session, user)
     return False
+
+
+def _sync_recording_state(db: Session, session: MentorshipSession) -> SessionRecording | None:
+    row = recording_service.latest_recording(db, session.id)
+    if not row or not row.egress_id or row.deleted_at:
+        return row
+
+    try:
+        egress = livekit_service.get_egress(egress_id=row.egress_id)
+    except Exception as exc:
+        if "does not exist" in str(exc).lower():
+            return recording_service.mark_failed(db, session.id, "Recording job no longer exists in LiveKit", recording_id=row.id)
+        if row.status == RecordingStatus.recording:
+            row.error_message = f"Recording sync pending: {exc}"
+            db.commit()
+            db.refresh(row)
+        return row
+
+    if not egress:
+        return row
+
+    if livekit_service.is_egress_complete(egress.status):
+        file_results = getattr(egress, "file_results", None) or []
+        object_key = None
+        if file_results:
+            object_key = getattr(file_results[0], "filename", None) or getattr(file_results[0], "filepath", None)
+        object_key = object_key or row.object_key or f"recordings/{session.id}/meeting.mp4"
+        row = recording_service.mark_uploaded(db, session.id, object_key, recording_id=row.id)
+        if session.status == SessionStatus.in_progress:
+            session.status = SessionStatus.completed
+            db.commit()
+            db.refresh(session)
+        return row
+
+    if livekit_service.is_egress_failed(egress.status):
+        return recording_service.mark_failed(db, session.id, "Automatic room recording failed", recording_id=row.id)
+
+    return row
 
 
 def _decode_user_from_token(token: str, db: Session) -> User:
@@ -136,6 +177,16 @@ def _decode_user_from_token(token: str, db: Session) -> User:
     return user
 
 
+def _display_label(db: Session, user_id: str, fallback_email: str | None = None) -> str:
+    profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+    if profile and profile.full_name and profile.full_name.strip():
+        return profile.full_name.strip()
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        return user.email
+    return fallback_email or user_id
+
+
 @router.get("/{session_id}", response_model=SessionOut)
 def get_session(session_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     row = db.query(MentorshipSession).filter(MentorshipSession.id == session_id).first()
@@ -146,7 +197,7 @@ def get_session(session_id: str, db: Session = Depends(get_db), user: User = Dep
     if not _can_student_review_or_join(row, user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Session is visible to student after mentor and manager approvals",
+            detail="Session is visible to student after mentor approval",
         )
     return row
 
@@ -167,8 +218,16 @@ def get_session_participants(session_id: str, db: Session = Depends(get_db), use
     student = db.query(User).filter(User.id == row.student_id).first()
     mentor = db.query(User).filter(User.id == row.mentor_id).first()
     return {
-        "student": {"id": row.student_id, "name": student.email if student else row.student_id},
-        "mentor": {"id": row.mentor_id, "name": mentor.email if mentor else row.mentor_id},
+        "student": {
+            "id": row.student_id,
+            "name": _display_label(db, row.student_id, student.email if student else None),
+            "email": student.email if student else row.student_id,
+        },
+        "mentor": {
+            "id": row.mentor_id,
+            "name": _display_label(db, row.mentor_id, mentor.email if mentor else None),
+            "email": mentor.email if mentor else row.mentor_id,
+        },
     }
 
 
@@ -318,16 +377,21 @@ def create_join_token(session_id: str, db: Session = Depends(get_db), user: User
     if not _can_student_review_or_join(row, user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Student can join after mentor and manager approvals",
+            detail="Student can join after mentor approval",
         )
 
     room_name = row.livekit_room or livekit_service.room_name_for_session(row.id)
     row.livekit_room = room_name
+    livekit_service.ensure_room(room_name=room_name, metadata=row.id)
     if row.status in (SessionStatus.confirmed, SessionStatus.pending_payment):
         row.status = SessionStatus.ready_to_join
     db.commit()
 
-    token = livekit_service.create_join_token(identity=user.id, room_name=room_name)
+    token = livekit_service.create_join_token(
+        identity=user.id,
+        room_name=room_name,
+        name=_display_label(db, user.id, user.email),
+    )
     public_livekit_url = settings.livekit_public_url or settings.livekit_url
     return {"room_name": room_name, "livekit_url": public_livekit_url, "token": token}
 
@@ -360,7 +424,7 @@ def list_messages(session_id: str, db: Session = Depends(get_db), user: User = D
     if not _can_student_review_or_join(session, user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Student can review chat after mentor and manager approvals",
+            detail="Student can review chat after mentor approval",
         )
 
     rows = db.query(SessionMessage).filter(SessionMessage.session_id == session_id).order_by(SessionMessage.created_at.asc()).all()
@@ -381,7 +445,17 @@ async def websocket_chat(websocket: WebSocket, session_id: str, token: str):
             await websocket.close(code=1008)
             return
 
-        await manager.connect(session_id, websocket, user)
+        connection = await manager.connect(session_id, websocket, user, _display_label(db, user.id, user.email))
+        await websocket.send_json(
+            {
+                "type": "self",
+                "session_id": session_id,
+                "connection_id": connection["connection_id"],
+                "user_id": user.id,
+                "user_name": user.email,
+                "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
+            }
+        )
         await websocket.send_json(
             {
                 "type": "presence_snapshot",
@@ -394,10 +468,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str, token: str):
             {
                 "type": "presence",
                 "session_id": session_id,
+                "connection_id": connection["connection_id"],
                 "user_id": user.id,
                 "user_name": user.email,
                 "user_role": user.role.value if hasattr(user.role, "value") else str(user.role),
-                "joined_at": datetime.now(timezone.utc).isoformat(),
+                "joined_at": connection["joined_at"],
             },
         )
 
@@ -410,6 +485,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str, token: str):
                     {
                         "type": event_type,
                         "session_id": session_id,
+                        "connection_id": connection["connection_id"],
                         "sender_id": user.id,
                         "sdp": payload.get("sdp"),
                         "candidate": payload.get("candidate"),
@@ -445,6 +521,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str, token: str):
             {
                 "type": "presence_leave",
                 "session_id": session_id,
+                "connection_id": connection["connection_id"] if "connection" in locals() else None,
                 "user_id": user.id,
                 "left_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -458,10 +535,29 @@ def start_recording(payload: RecordingStartRequest, db: Session = Depends(get_db
     session = db.query(MentorshipSession).filter(MentorshipSession.id == payload.session_id).first()
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    if user.role != Role.admin and session.mentor_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only mentor/admin can start recording")
+    if user.role != Role.admin and user.id not in (session.mentor_id, session.student_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only session participants/admin can start recording")
+    room_name = session.livekit_room or livekit_service.room_name_for_session(session.id)
+    session.livekit_room = room_name
+    existing = recording_service.active_recording(db, session.id) or _sync_recording_state(db, session)
+    if existing and existing.status in {"queued", "recording"} and not existing.deleted_at:
+        if session.status != SessionStatus.in_progress:
+            session.status = SessionStatus.in_progress
+            db.commit()
+            db.refresh(session)
+        return existing
+    try:
+        livekit_service.ensure_room(room_name=room_name, metadata=session.id)
+        egress_id, object_key = livekit_service.start_room_recording(room_name=room_name, session_id=session.id)
+    except Exception as exc:
+        row = recording_service.mark_failed(db, payload.session_id, f"Unable to start automatic recording: {exc}")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=row.error_message)
 
-    row = recording_service.start_recording(db, payload.session_id, egress_id=f"eg_{payload.session_id[:8]}")
+    row = recording_service.start_recording(db, payload.session_id, egress_id=egress_id)
+    row.object_key = object_key
+    session.status = SessionStatus.in_progress
+    db.commit()
+    db.refresh(row)
     return row
 
 
@@ -470,8 +566,8 @@ def complete_recording(payload: RecordingCompleteRequest, db: Session = Depends(
     session = db.query(MentorshipSession).filter(MentorshipSession.id == payload.session_id).first()
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    if user.role != Role.admin and session.mentor_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only mentor/admin can complete recording")
+    if user.role != Role.admin and user.id not in (session.mentor_id, session.student_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only session participants/admin can complete recording")
 
     row = recording_service.mark_uploaded(db, payload.session_id, payload.object_key)
     notification_service.create(
@@ -480,6 +576,13 @@ def complete_recording(payload: RecordingCompleteRequest, db: Session = Depends(
         title="Recording ready",
         message=f"Session recording for {session.id} is now available.",
     )
+    if session.mentor_id != session.student_id:
+        notification_service.create(
+            db,
+            user_id=session.mentor_id,
+            title="Recording ready",
+            message=f"Session recording for {session.id} is now available.",
+        )
     return row
 
 
@@ -491,15 +594,52 @@ def get_recording(session_id: str, db: Session = Depends(get_db), user: User = D
     if not _can_access_session(session, user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
 
-    row = db.query(SessionRecording).filter(SessionRecording.session_id == session_id).first()
+    row = _sync_recording_state(db, session)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    if row.deleted_at:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording deleted")
     policy = recording_service.ensure_visibility_policy(db, session_id)
     if not _can_view_recording(session, user, policy):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Recording is not visible for your role")
     if row.object_key:
         row.playback_url = recording_service.storage.presign_get(row.object_key)
     return row
+
+
+@router.get("/{session_id}/recordings", response_model=list[RecordingOut])
+def list_recordings(session_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    session = db.query(MentorshipSession).filter(MentorshipSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if not _can_access_session(session, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+
+    policy = recording_service.ensure_visibility_policy(db, session_id)
+    if not _can_view_recording(session, user, policy):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Recording is not visible for your role")
+
+    rows = recording_service.list_recordings(db, session_id)
+    for row in rows:
+        if row.object_key:
+            row.playback_url = recording_service.storage.presign_get(row.object_key)
+    return rows
+
+
+@router.delete("/{session_id}/recording", response_model=RecordingOut)
+def delete_recording(session_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    session = db.query(MentorshipSession).filter(MentorshipSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if user.role not in (Role.admin, Role.manager):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only manager/admin can delete recordings")
+    row = recording_service.latest_recording(db, session_id)
+    if not row or row.deleted_at:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+    try:
+        return recording_service.mark_deleted(db, session_id, user)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
 
 
 @router.get("/{session_id}/recording-visibility", response_model=RecordingVisibilityOut)
@@ -532,13 +672,11 @@ def update_recording_visibility(
     if user.role == Role.mentor:
         if session.mentor_id != user.id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only assigned mentor can change visibility")
-        # Student visibility is always enabled by policy.
-        policy.visible_to_student = True
         # Mentor is always allowed to review their own recording.
         policy.visible_to_mentor = True
     elif user.role in (Role.manager, Role.admin):
-        # Student visibility is always enabled by policy.
-        policy.visible_to_student = True
+        if payload.visible_to_student is not None:
+            policy.visible_to_student = payload.visible_to_student
         if payload.visible_to_mentor is not None:
             policy.visible_to_mentor = payload.visible_to_mentor
         if payload.visible_to_manager is not None:

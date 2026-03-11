@@ -2,6 +2,7 @@ from urllib.parse import urljoin
 
 import boto3
 from botocore.client import Config
+from botocore.exceptions import ClientError
 
 from ..core.config import settings
 
@@ -33,6 +34,22 @@ class StorageService:
             ExpiresIn=expires_in,
         )
 
+    def ensure_bucket(self) -> None:
+        try:
+            self.client.head_bucket(Bucket=settings.s3_bucket)
+            return
+        except ClientError:
+            pass
+
+        # MinIO/local default region works without explicit location constraint.
+        if settings.s3_region and settings.s3_region != "us-east-1":
+            self.client.create_bucket(
+                Bucket=settings.s3_bucket,
+                CreateBucketConfiguration={"LocationConstraint": settings.s3_region},
+            )
+            return
+        self.client.create_bucket(Bucket=settings.s3_bucket)
+
     def presign_get(self, object_key: str, expires_in: int = 900) -> str:
         return self.presign_client.generate_presigned_url(
             "get_object",
@@ -43,3 +60,6 @@ class StorageService:
     def public_url(self, object_key: str) -> str:
         base = (settings.s3_public_endpoint or settings.s3_endpoint).rstrip("/") + "/"
         return urljoin(base, f"{settings.s3_bucket}/{object_key}")
+
+    def delete_object(self, object_key: str) -> None:
+        self.client.delete_object(Bucket=settings.s3_bucket, Key=object_key)

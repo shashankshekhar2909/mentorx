@@ -20,8 +20,8 @@ const displayFont = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "MentorX",
-  description: "MentorX mentorship marketplace"
+  title: "mentorXAI",
+  description: "mentorXAI mentorship marketplace"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

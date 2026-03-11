@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.database import Base
@@ -34,3 +34,5 @@ class Session(Base):
     duration_minutes: Mapped[int] = mapped_column(Integer, default=60)
     status: Mapped[SessionStatus] = mapped_column(Enum(SessionStatus), default=SessionStatus.pending_payment, index=True)
     livekit_room: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_chat_thread_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("chat_threads.id"), nullable=True, index=True)
+    is_instant: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

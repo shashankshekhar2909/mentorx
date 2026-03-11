@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { Disclosure, DisclosureButton, DisclosurePanel, Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
-import { Bars3Icon, BellIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, BellIcon, UserCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
+import { authedFetch, parseJsonSafe } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 
 function classNames(...classes: Array<string | false | null | undefined>) {
@@ -15,15 +17,23 @@ export function TopNav() {
   const router = useRouter();
   const pathname = usePathname();
   const session = useAuthStore((s) => s.session);
+  const updateSession = useAuthStore((s) => s.updateSession);
   const clearSession = useAuthStore((s) => s.clearSession);
   const email = session?.email ?? "";
-  const initials = email ? email.slice(0, 1).toUpperCase() : "M";
+  const displayName = session?.displayName ?? email;
+  const initials = displayName ? displayName.slice(0, 1).toUpperCase() : "M";
+  const roleLabel = session?.role ? session.role.slice(0, 1).toUpperCase() + session.role.slice(1) : "";
 
   const navigation = session
     ? [
         { name: "Dashboard", href: "/dashboard" },
         { name: "Calendar", href: "/dashboard/calendar" },
         { name: "Recordings", href: "/dashboard/recordings" },
+        { name: "Profile", href: "/dashboard/profile" },
+        ...(session.role === "student" ? [{ name: "Mentors", href: "/dashboard/student/mentors" }] : []),
+        ...(session.role === "student" ? [{ name: "Chats", href: "/dashboard/student/chats" }] : []),
+        ...(session.role === "mentor" ? [{ name: "Students", href: "/dashboard/mentor/students" }] : []),
+        ...(session.role === "mentor" ? [{ name: "Chats", href: "/dashboard/mentor/chats" }] : []),
         ...(session.role === "student" ? [{ name: "Resources", href: "/dashboard/resources" }] : []),
         ...(session.role === "admin" || session.role === "manager" ? [{ name: "Admin", href: "/dashboard/admin" }] : []),
       ]
@@ -32,6 +42,24 @@ export function TopNav() {
         { name: "Login", href: "/login" },
         { name: "Join", href: "/register" },
       ];
+
+  useEffect(() => {
+    if (!session?.accessToken) return;
+    let active = true;
+    void authedFetch("/users/me/account")
+      .then((resp) => parseJsonSafe(resp).then((data) => ({ ok: resp.ok, data })))
+      .then(({ ok, data }) => {
+        if (!active || !ok) return;
+        const nextName = String(data?.display_name ?? data?.email ?? session.email);
+        if (nextName !== session.displayName) {
+          updateSession({ displayName: nextName });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [session?.accessToken, session?.displayName, session?.email, updateSession]);
 
   return (
     <Disclosure as="nav" className="sticky top-0 z-50 bg-gray-800">
@@ -52,7 +80,7 @@ export function TopNav() {
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-indigo-500 text-sm font-extrabold text-white">
                   M
                 </span>
-                <span className="text-sm font-semibold text-white sm:text-base">MentorX</span>
+                <span className="text-sm font-semibold text-white sm:text-base">mentorXAI</span>
               </Link>
             </div>
             <div className="hidden sm:ml-6 sm:block">
@@ -96,17 +124,31 @@ export function TopNav() {
 
                 <MenuItems
                   transition
-                  className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg outline outline-black/5 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
+                  className="absolute right-0 z-10 mt-2 w-72 origin-top-right rounded-2xl border border-slate-200 bg-white p-2 shadow-lg outline outline-black/5 transition data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
                 >
+                  <div className="mb-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
+                        <UserCircleIcon className="h-6 w-6" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">{displayName}</p>
+                        <p className="truncate text-xs text-slate-500">{email}</p>
+                        <p className="mt-1 inline-flex rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                          {roleLabel}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                   <MenuItem>
-                    <Link href="/dashboard" className="block px-4 py-2 text-sm text-gray-700 data-focus:bg-gray-100 data-focus:outline-hidden">
-                      Workspace
+                    <Link href="/dashboard/profile" className="block rounded-xl px-4 py-2 text-sm font-medium text-gray-700 data-focus:bg-gray-100 data-focus:outline-hidden">
+                      Profile Settings
                     </Link>
                   </MenuItem>
                   <MenuItem>
                     <button
                       type="button"
-                      className="block w-full px-4 py-2 text-left text-sm text-gray-700 data-focus:bg-gray-100 data-focus:outline-hidden"
+                      className="block w-full rounded-xl px-4 py-2 text-left text-sm font-medium text-gray-700 data-focus:bg-gray-100 data-focus:outline-hidden"
                       onClick={() => {
                         clearSession();
                         router.push("/login");

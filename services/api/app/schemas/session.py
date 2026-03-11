@@ -23,6 +23,8 @@ class SessionOut(BaseModel):
     duration_minutes: int
     status: SessionStatus
     livekit_room: str | None
+    source_chat_thread_id: str | None = None
+    is_instant: bool = False
 
     class Config:
         from_attributes = True

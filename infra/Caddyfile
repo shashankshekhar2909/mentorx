@@ -6,7 +6,7 @@
   }
 }
 
-http://{$APP_HOST:localhost} {
+http:// {
   encode gzip zstd
 
   @livekit path /rtc/* /twirp/*
@@ -18,7 +18,7 @@ http://{$APP_HOST:localhost} {
   reverse_proxy web:3000
 }
 
-https://{$APP_HOST:localhost} {
+https:// {
   tls internal {
     curves x25519 secp256r1
   }

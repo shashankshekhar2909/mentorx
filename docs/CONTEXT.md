@@ -209,6 +209,20 @@ This file is the shared working context for the project. It should be updated on
     - student visibility is now always enabled and cannot be disabled by mentor/manager/admin.
     - backend enforces `visible_to_student=true` on create/update and auto-corrects legacy false rows when policy is loaded.
     - session hub visibility UI now removes student hide toggle and shows fixed-policy message.
+- 2026-03-11 session hub reliability + compose stability:
+  - Session Hub call UX fixes (`apps/web/app/dashboard/sessions/[sessionId]/page.tsx`):
+    - receive-only join now starts call timer (`Call Duration`) instead of staying at `00:00`.
+    - call teardown now resets local video state to `idle`.
+    - mic/camera toggle handlers now show explicit HTTPS/localhost requirement errors when browser media APIs are unavailable.
+    - recording badge text now reflects receive-only mode (`Recording unavailable in receive-only mode`) instead of always showing auto-start text.
+  - Docker compose web runtime fix (`infra/docker-compose.yml`):
+    - changed web command from `npm run build && npm run start` to `npm run dev -- -p 3000` to remove repeated build/start windows that were causing intermittent Caddy `502` (`connect: connection refused`) during rebuild cycles.
+- 2026-03-11 in-app recording playback UX:
+  - Replaced external recording links with embedded in-app HTML5 video players (no-download controls) in:
+    - `apps/web/app/dashboard/sessions/[sessionId]/page.tsx`
+    - `apps/web/app/dashboard/recordings/page.tsx`
+    - `apps/web/app/dashboard/student/page.tsx`
+  - Added `controlsList="nodownload noplaybackrate"` and context-menu suppression on recording players so users can review recordings directly without needing to download/open new tab.
 
 ## Update Rule
 Whenever code changes are made, append a short bullet in "Latest Changes" with date and impacted modules/routes.

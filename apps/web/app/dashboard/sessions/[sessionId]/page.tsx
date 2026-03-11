@@ -1,17 +1,27 @@
 "use client";
 
+import "@livekit/components-styles";
+
+import {
+  ControlBar,
+  LiveKitRoom,
+  ParticipantTile,
+  RoomAudioRenderer,
+  useTracks,
+} from "@livekit/components-react";
 import { useParams } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Track } from "livekit-client";
 
 import { apiWsUrl, authedFetch, parseJsonSafe } from "@/lib/api";
+import {
+  formatIstDateTime,
+  formatIstTime,
+  formatSessionStatus,
+  sessionStatusClasses,
+  sessionStatusIcon,
+} from "@/lib/presentation";
 import { useAuthStore } from "@/lib/auth-store";
-
-type Message = {
-  id: string;
-  sender_id: string;
-  message: string;
-  created_at: string;
-};
 
 type SessionInfo = {
   id: string;
@@ -24,11 +34,21 @@ type SessionInfo = {
   status: string;
 };
 
+type JoinData = {
+  room_name: string;
+  livekit_url: string;
+  token: string;
+};
+
 type Recording = {
+  id: string;
   session_id: string;
+  attempt_number: number;
   object_key: string | null;
   playback_url: string | null;
   status: string;
+  error_message: string | null;
+  created_at?: string;
 };
 
 type RecordingVisibility = {
@@ -40,98 +60,112 @@ type RecordingVisibility = {
 };
 
 type Participants = {
-  student: { id: string; name: string };
-  mentor: { id: string; name: string };
+  student: { id: string; name: string; email?: string };
+  mentor: { id: string; name: string; email?: string };
+};
+
+type PresenceRow = {
+  connection_id?: string;
+  user_id: string;
+  user_name?: string;
+  user_role?: string;
+  joined_at?: string;
 };
 
 type SignalPayload = {
   type: string;
-  sender_id?: string;
+  connection_id?: string;
   user_id?: string;
   user_name?: string;
   user_role?: string;
-  participants?: Array<{ user_id: string; user_name?: string; user_role?: string }>;
-  id?: string;
-  message?: string;
-  created_at?: string;
-  sdp?: RTCSessionDescriptionInit;
-  candidate?: RTCIceCandidateInit;
+  joined_at?: string;
+  participants?: PresenceRow[];
 };
 
-type RtcDebugState = {
-  ws_state: string;
-  pc_state: string;
-  ice_state: string;
-  ready_sent: number;
-  ready_recv: number;
-  offer_sent: number;
-  offer_recv: number;
-  answer_sent: number;
-  answer_recv: number;
-  ice_sent: number;
-  ice_recv: number;
-  hangup_sent: number;
-  hangup_recv: number;
-  ws_messages_recv: number;
-  last_event: string;
-};
+function MeetingStage() {
+  const cameraTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
+    onlySubscribed: false,
+  });
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
+  const localTrack = cameraTracks.find((track) => track.participant.isLocal) ?? null;
+  const remoteTracks = cameraTracks.filter((track) => !track.participant.isLocal);
+  const featuredTrack = remoteTracks[0] ?? localTrack;
+  const sideTracks = remoteTracks.slice(1);
+
+  return (
+    <div className="flex h-[720px] flex-col bg-slate-950">
+      <div className="relative flex-1 overflow-hidden">
+        {featuredTrack ? (
+          <ParticipantTile
+            trackRef={featuredTrack}
+            className="h-full w-full [&_[data-lk-participant-name]]:bg-black/55 [&_[data-lk-participant-name]]:px-3 [&_[data-lk-participant-name]]:py-1 [&_[data-lk-participant-name]]:text-sm [&_.lk-participant-tile]:h-full [&_.lk-participant-tile]:w-full [&_.lk-participant-tile_video]:h-full [&_.lk-participant-tile_video]:w-full [&_.lk-participant-tile_video]:object-cover"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-slate-300">
+            <div className="text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                <i className="fa-solid fa-user text-2xl" />
+              </div>
+              <p className="mt-4 text-lg font-semibold">Waiting for participants</p>
+              <p className="mt-1 text-sm text-slate-400">The call stage will appear here as soon as someone joins.</p>
+            </div>
+          </div>
+        )}
+
+        {localTrack && (
+          <div className="absolute bottom-4 right-4 w-44 overflow-hidden rounded-2xl border border-white/15 bg-slate-900 shadow-2xl">
+            <ParticipantTile
+              trackRef={localTrack}
+              className="aspect-[9/16] w-full [&_[data-lk-participant-name]]:bg-black/60 [&_[data-lk-participant-name]]:px-2 [&_[data-lk-participant-name]]:py-1 [&_[data-lk-participant-name]]:text-xs [&_.lk-participant-tile_video]:h-full [&_.lk-participant-tile_video]:w-full [&_.lk-participant-tile_video]:object-cover"
+            />
+          </div>
+        )}
+
+        {sideTracks.length > 0 && (
+          <div className="absolute left-4 top-4 flex max-h-[calc(100%-2rem)] w-36 flex-col gap-3 overflow-y-auto">
+            {sideTracks.map((track) => (
+              <div key={`${track.participant.identity}-${track.source}-${track.publication?.trackSid ?? "placeholder"}`} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/90 shadow-lg">
+                <ParticipantTile
+                  trackRef={track}
+                  className="aspect-[3/4] w-full [&_[data-lk-participant-name]]:bg-black/60 [&_[data-lk-participant-name]]:px-2 [&_[data-lk-participant-name]]:py-1 [&_[data-lk-participant-name]]:text-[11px] [&_.lk-participant-tile_video]:h-full [&_.lk-participant-tile_video]:w-full [&_.lk-participant-tile_video]:object-cover"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-white/10 bg-slate-950/95 px-4 py-3">
+        <ControlBar variation="minimal" className="[&_.lk-button]:rounded-full [&_.lk-button]:border-0 [&_.lk-button]:shadow-none" />
+      </div>
+    </div>
+  );
+}
 
 export default function SessionHubPage() {
   const params = useParams();
   const sessionId = String(params.sessionId);
-  const session = useAuthStore((s) => s.session);
-  const token = session?.accessToken;
-  const role = session?.role;
+  const authSession = useAuthStore((s) => s.session);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const token = authSession?.accessToken;
+  const role = authSession?.role;
 
-  const [messages, setMessages] = useState<Message[]>([]);
   const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
-  const [text, setText] = useState("");
-  const [callError, setCallError] = useState("");
+  const [participants, setParticipants] = useState<Participants | null>(null);
+  const [joinData, setJoinData] = useState<JoinData | null>(null);
+  const [connectLiveKit, setConnectLiveKit] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [recording, setRecording] = useState<Recording | null>(null);
+  const [recordingAttempts, setRecordingAttempts] = useState<Recording[]>([]);
   const [recordingMessage, setRecordingMessage] = useState("");
   const [visibility, setVisibility] = useState<RecordingVisibility | null>(null);
-  const [participants, setParticipants] = useState<Participants | null>(null);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
-  const [isInCall, setIsInCall] = useState(false);
-  const [isMicEnabled, setIsMicEnabled] = useState(true);
-  const [isCamEnabled, setIsCamEnabled] = useState(true);
-  const [localVideoState, setLocalVideoState] = useState("idle");
-  const [selfUserId, setSelfUserId] = useState<string | null>(null);
-  const [peerUserId, setPeerUserId] = useState<string | null>(null);
-  const [peerConnected, setPeerConnected] = useState(false);
-  const [roomParticipants, setRoomParticipants] = useState<Array<{ user_id: string; user_name?: string; user_role?: string }>>([]);
-  const [rtcDebug, setRtcDebug] = useState<RtcDebugState>({
-    ws_state: "idle",
-    pc_state: "new",
-    ice_state: "new",
-    ready_sent: 0,
-    ready_recv: 0,
-    offer_sent: 0,
-    offer_recv: 0,
-    answer_sent: 0,
-    answer_recv: 0,
-    ice_sent: 0,
-    ice_recv: 0,
-    hangup_sent: 0,
-    hangup_recv: 0,
-    ws_messages_recv: 0,
-    last_event: "init",
-  });
+  const [callError, setCallError] = useState("");
+  const [roomParticipants, setRoomParticipants] = useState<PresenceRow[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const selfUserIdRef = useRef<string | null>(null);
-  const peerUserIdRef = useRef<string | null>(null);
-  const isInCallRef = useRef(false);
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const madeOfferRef = useRef(false);
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const recordingStartedRef = useRef(false);
 
   const wsUrl = useMemo(() => {
     if (!token || !sessionId) return null;
@@ -139,34 +173,26 @@ export default function SessionHubPage() {
   }, [token, sessionId]);
 
   const canManageVisibility = role === "mentor" || role === "manager" || role === "admin";
-  const canUseLocalMedia = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    return Boolean(window.isSecureContext && navigator.mediaDevices?.getUserMedia);
-  }, []);
-  const canRunWebRtcCall = role === "student" || role === "mentor" || role === "manager" || role === "admin";
-  const preferredPeerId = useMemo(() => {
-    if (!participants || !session) return null;
-    if (session.role === "student") return participants.mentor.id;
-    if (session.role === "mentor") return participants.student.id;
-    if (session.role === "manager" || session.role === "admin") return participants.mentor.id || participants.student.id;
-    return null;
-  }, [participants, session]);
 
   async function loadRecording() {
-    const resp = await authedFetch(`/sessions/${sessionId}/recording`);
+    const resp = await authedFetch(`/sessions/${sessionId}/recordings`);
     const data = await parseJsonSafe(resp);
     if (resp.ok) {
-      setRecording(data);
-      setRecordingMessage("");
+      const attempts = Array.isArray(data) ? (data as Recording[]) : [];
+      setRecordingAttempts(attempts);
+      setRecording(attempts[0] ?? null);
+      setRecordingMessage(attempts.length > 0 ? "" : "Automatic recording will appear here after the meeting is processed.");
       return;
     }
     if (resp.status === 404) {
       setRecording(null);
-      setRecordingMessage("No recording available yet.");
+      setRecordingAttempts([]);
+      setRecordingMessage("Automatic recording will appear here after the meeting is processed.");
       return;
     }
     setRecording(null);
-    setRecordingMessage(data?.detail ?? "Recording unavailable");
+    setRecordingAttempts([]);
+    setRecordingMessage(data?.detail ?? "Recording status is unavailable right now.");
   }
 
   async function loadVisibility() {
@@ -175,694 +201,545 @@ export default function SessionHubPage() {
     if (resp.ok) setVisibility(data);
   }
 
-  function sendSignal(type: string, payload: Record<string, unknown> = {}) {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    setRtcDebug((prev) => {
-      const next = { ...prev, last_event: `send:${type}` };
-      if (type === "webrtc_ready") next.ready_sent += 1;
-      else if (type === "webrtc_offer") next.offer_sent += 1;
-      else if (type === "webrtc_answer") next.answer_sent += 1;
-      else if (type === "webrtc_ice") next.ice_sent += 1;
-      else if (type === "webrtc_hangup") next.hangup_sent += 1;
-      return next;
-    });
-    ws.send(JSON.stringify({ type, ...payload }));
-  }
-
-  function cleanupPeerConnection() {
-    const pc = pcRef.current;
-    if (pc) {
-      pc.onicecandidate = null;
-      pc.ontrack = null;
-      pc.onconnectionstatechange = null;
-      pc.close();
-    }
-    pcRef.current = null;
-    remoteStreamRef.current = null;
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-    setPeerConnected(false);
-    madeOfferRef.current = false;
-  }
-
-  function stopLocalStream() {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop());
-      localStreamRef.current = null;
-    }
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-  }
-
-  function ensurePeerConnection(): RTCPeerConnection {
-    if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection(RTC_CONFIG);
-    pc.onicecandidate = (event) => {
-      if (!event.candidate) return;
-      sendSignal("webrtc_ice", { candidate: event.candidate.toJSON() });
-    };
-    pc.oniceconnectionstatechange = () => {
-      setRtcDebug((prev) => ({ ...prev, ice_state: pc.iceConnectionState, last_event: `ice:${pc.iceConnectionState}` }));
-    };
-    pc.ontrack = (event) => {
-      if (!remoteStreamRef.current) {
-        remoteStreamRef.current = new MediaStream();
-      }
-      for (const track of event.streams[0]?.getTracks() ?? [event.track]) {
-        remoteStreamRef.current.addTrack(track);
-      }
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      }
-    };
-    pc.onconnectionstatechange = () => {
-      const state = pc.connectionState;
-      setPeerConnected(state === "connected");
-      setRtcDebug((prev) => ({ ...prev, pc_state: state, last_event: `pc:${state}` }));
-      if (state === "failed" || state === "disconnected" || state === "closed") {
-        // Keep local user in the call screen; peer can reconnect.
-        cleanupPeerConnection();
-      }
-    };
-    pcRef.current = pc;
-    return pc;
-  }
-
-  async function maybeCreateOffer() {
-    const selfId = selfUserIdRef.current;
-    const peerId = peerUserIdRef.current;
-    if (!isInCallRef.current || !selfId || !peerId || madeOfferRef.current) return;
-    if (!canRunWebRtcCall) return;
-    const shouldInitiate = selfId < peerId;
-    if (!shouldInitiate) return;
-    const pc = ensurePeerConnection();
-    if (localStreamRef.current) {
-      for (const track of localStreamRef.current.getTracks()) {
-        if (!pc.getSenders().some((s) => s.track?.id === track.id)) {
-          pc.addTrack(track, localStreamRef.current);
-        }
-      }
-    }
-    if (pc.signalingState !== "stable") return;
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    madeOfferRef.current = true;
-    sendSignal("webrtc_offer", { sdp: offer });
-  }
-
-  async function startCall() {
-    if (!canRunWebRtcCall) {
-      setCallError("Direct WebRTC call is available only for student and mentor.");
-      return;
-    }
-    if (!canUseLocalMedia) {
-      setCallError("Open MentorX on HTTPS or localhost to enable microphone/camera and join call.");
+  async function bootstrap() {
+    if (!hasHydrated) return;
+    if (!authSession?.accessToken) {
+      setCallError("Your sign-in session expired. Please sign in again to open this meeting.");
       return;
     }
     try {
+      const [sessionResp, participantsResp] = await Promise.all([
+        authedFetch(`/sessions/${sessionId}`),
+        authedFetch(`/sessions/${sessionId}/participants`),
+      ]);
+      const [details, participantsData] = await Promise.all([
+        parseJsonSafe(sessionResp),
+        parseJsonSafe(participantsResp),
+      ]);
+
+      if (sessionResp.status === 401 || participantsResp.status === 401) {
+        setCallError("Your sign-in session expired. Please sign in again to open this meeting.");
+        return;
+      }
+      if (!sessionResp.ok || !participantsResp.ok) {
+        setCallError("Meeting details are not available right now. Refresh the page or reopen the session from your dashboard.");
+        return;
+      }
+
+      setSessionInfo(sessionResp.ok ? details : null);
+      setParticipants(participantsResp.ok ? participantsData : null);
       setCallError("");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      });
-      const videoTracks = stream.getVideoTracks();
-      if (videoTracks.length === 0) {
-        setCallError("Camera track not available. Check camera permissions/device.");
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      localStreamRef.current = stream;
-      setLocalVideoState("live");
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-        void localVideoRef.current.play().catch(() => {
-          setLocalVideoState("autoplay_blocked");
-        });
-      }
-      const pc = ensurePeerConnection();
-      for (const track of stream.getTracks()) {
-        pc.addTrack(track, stream);
-      }
-      isInCallRef.current = true;
-      setIsInCall(true);
-      setIsMicEnabled(true);
-      setIsCamEnabled(true);
-      sendSignal("webrtc_ready");
-      await maybeCreateOffer();
+      await Promise.all([loadVisibility(), loadRecording()]);
     } catch {
-      setCallError("Unable to access microphone/camera. Please allow browser permissions.");
+      setCallError("Meeting details are not available right now. Refresh the page or reopen the session from your dashboard.");
     }
   }
 
-  function leaveCall(notifyPeer: boolean) {
-    if (notifyPeer) sendSignal("webrtc_hangup");
-    cleanupPeerConnection();
-    stopLocalStream();
-    isInCallRef.current = false;
-    setIsInCall(false);
-    setIsMicEnabled(true);
-    setIsCamEnabled(true);
+  async function prepareJoin() {
+    setIsJoining(true);
+    setCallError("");
+    try {
+      const resp = await authedFetch(`/sessions/${sessionId}/join-token`, { method: "POST" });
+      const data = await parseJsonSafe(resp);
+      if (!resp.ok) {
+        setCallError(data?.detail ?? "Unable to prepare the meeting room.");
+        return;
+      }
+      recordingStartedRef.current = false;
+      setJoinData(data);
+      setConnectLiveKit(true);
+    } finally {
+      setIsJoining(false);
+    }
   }
 
-  function onPeerLeftCall() {
-    cleanupPeerConnection();
-    setPeerConnected(false);
-    setCallError("Peer left the call. You can stay here and they can rejoin.");
-  }
-
-  function toggleMic() {
-    const stream = localStreamRef.current;
-    if (!stream) return;
-    const next = !isMicEnabled;
-    stream.getAudioTracks().forEach((track) => {
-      track.enabled = next;
+  async function ensureRecordingStarted() {
+    if (recordingStartedRef.current) return;
+    recordingStartedRef.current = true;
+    const resp = await authedFetch("/sessions/recordings/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId }),
     });
-    setIsMicEnabled(next);
-  }
-
-  function toggleCam() {
-    const stream = localStreamRef.current;
-    if (!stream) return;
-    const next = !isCamEnabled;
-    stream.getVideoTracks().forEach((track) => {
-      track.enabled = next;
-    });
-    setIsCamEnabled(next);
-    setLocalVideoState(next ? "live" : "disabled");
-  }
-
-  useEffect(() => {
-    selfUserIdRef.current = selfUserId;
-  }, [selfUserId]);
-
-  useEffect(() => {
-    peerUserIdRef.current = peerUserId;
-  }, [peerUserId]);
-
-  useEffect(() => {
-    isInCallRef.current = isInCall;
-  }, [isInCall]);
-
-  useEffect(() => {
-    async function bootstrap() {
-      try {
-        const [historyResp, sessionResp, participantsResp] = await Promise.all([
-          authedFetch(`/sessions/${sessionId}/messages`),
-          authedFetch(`/sessions/${sessionId}`),
-          authedFetch(`/sessions/${sessionId}/participants`),
-        ]);
-        const [history, details, participantsData] = await Promise.all([
-          parseJsonSafe(historyResp),
-          parseJsonSafe(sessionResp),
-          parseJsonSafe(participantsResp),
-        ]);
-
-        setSessionInfo(details?.id ? details : null);
-        setMessages(Array.isArray(history) ? history : []);
-        setParticipants(participantsResp.ok ? participantsData : null);
-
-        await loadVisibility();
-        const statusValue = String(details?.status ?? "");
-        if (["in_progress", "completed"].includes(statusValue)) {
-          await loadRecording();
-        } else {
-          setRecording(null);
-          setRecordingMessage("Recording appears after the call starts/completes.");
-        }
-      } catch {
-        setCallError("Unable to load session hub right now. Please refresh.");
-      }
+    const data = await parseJsonSafe(resp);
+    if (!resp.ok) {
+      recordingStartedRef.current = false;
+      setRecordingMessage(data?.detail ?? "Automatic recording could not be started.");
+      return;
     }
-    void bootstrap();
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (!wsUrl) return;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    setRtcDebug((prev) => ({ ...prev, ws_state: "connecting", last_event: "ws:connecting" }));
-
-    ws.onopen = () => {
-      setRtcDebug((prev) => ({ ...prev, ws_state: "open", last_event: "ws:open" }));
-    };
-
-    ws.onerror = () => {
-      setRtcDebug((prev) => ({ ...prev, ws_state: "error", last_event: "ws:error" }));
-    };
-
-    ws.onclose = () => {
-      setRtcDebug((prev) => ({ ...prev, ws_state: "closed", last_event: "ws:closed" }));
-    };
-
-    ws.onmessage = async (event) => {
-      let payload: SignalPayload;
-      try {
-        payload = JSON.parse(event.data) as SignalPayload;
-      } catch {
-        return;
-      }
-      setRtcDebug((prev) => ({ ...prev, ws_messages_recv: prev.ws_messages_recv + 1, last_event: `recv:${payload.type}` }));
-
-      if (payload.type === "presence" && payload.user_id) {
-        const userId = payload.user_id;
-        if (!userId) return;
-        setRoomParticipants((prev) => {
-          const exists = prev.some((p) => p.user_id === userId);
-          if (exists) return prev.map((p) => (p.user_id === userId ? { ...p, user_name: payload.user_name, user_role: payload.user_role } : p));
-          return [...prev, { user_id: userId, user_name: payload.user_name, user_role: payload.user_role }];
-        });
-        const currentSelf = selfUserIdRef.current;
-        if (!currentSelf) {
-          // Identify self by known session identity (email + role) when available.
-          if ((payload.user_name && payload.user_name === session?.email) || (payload.user_role && payload.user_role === role)) {
-            selfUserIdRef.current = userId;
-            setSelfUserId(userId);
-            return;
-          }
-        }
-        if (userId !== selfUserIdRef.current) {
-          const desiredPeer = preferredPeerId ?? userId;
-          if (userId !== desiredPeer) return;
-          if (peerUserIdRef.current && peerUserIdRef.current !== userId) return;
-          peerUserIdRef.current = userId;
-          setPeerUserId(userId);
-          if (isInCallRef.current) await maybeCreateOffer();
-        }
-        return;
-      }
-
-      if (payload.type === "presence_snapshot" && Array.isArray(payload.participants)) {
-        setRoomParticipants(payload.participants);
-        if (!selfUserIdRef.current) {
-          const foundSelf = payload.participants.find(
-            (p) => (p.user_name && p.user_name === session?.email) || (p.user_role && p.user_role === role),
-          );
-          if (foundSelf?.user_id) {
-            selfUserIdRef.current = foundSelf.user_id;
-            setSelfUserId(foundSelf.user_id);
-          }
-        }
-        const candidatePeer = payload.participants.find(
-          (p) => p.user_id !== selfUserIdRef.current && (!preferredPeerId || p.user_id === preferredPeerId),
-        );
-        if (candidatePeer?.user_id) {
-          if (!peerUserIdRef.current || peerUserIdRef.current === candidatePeer.user_id) {
-            peerUserIdRef.current = candidatePeer.user_id;
-            setPeerUserId(candidatePeer.user_id);
-          }
-          if (isInCallRef.current) {
-            madeOfferRef.current = false;
-            await maybeCreateOffer();
-          }
-        }
-        return;
-      }
-
-      if (payload.type === "presence_leave" && payload.user_id) {
-        setRoomParticipants((prev) => prev.filter((p) => p.user_id !== payload.user_id));
-        if (peerUserIdRef.current === payload.user_id) {
-          onPeerLeftCall();
-        }
-        return;
-      }
-
-      if (payload.type === "webrtc_ready" && payload.sender_id) {
-        setRtcDebug((prev) => ({ ...prev, ready_recv: prev.ready_recv + 1, last_event: "recv:webrtc_ready" }));
-        if (payload.sender_id !== selfUserIdRef.current) {
-          if (preferredPeerId && payload.sender_id !== preferredPeerId) return;
-          peerUserIdRef.current = payload.sender_id;
-          setPeerUserId(payload.sender_id);
-          if (isInCallRef.current) {
-            // Peer may have joined after our first offer; allow re-offer.
-            madeOfferRef.current = false;
-            await maybeCreateOffer();
-          }
-        }
-        return;
-      }
-
-      if (payload.type === "message" && payload.id && payload.sender_id && payload.message && payload.created_at) {
-        const nextMessage: Message = {
-          id: payload.id,
-          sender_id: payload.sender_id,
-          message: payload.message,
-          created_at: payload.created_at,
-        };
-        setMessages((prev) => [...prev, nextMessage]);
-        return;
-      }
-
-      if (!isInCallRef.current) return;
-      if (payload.sender_id && payload.sender_id === selfUserIdRef.current) return;
-
-      if (payload.type === "webrtc_offer" && payload.sdp) {
-        setRtcDebug((prev) => ({ ...prev, offer_recv: prev.offer_recv + 1, last_event: "recv:webrtc_offer" }));
-        const pc = ensurePeerConnection();
-        if (localStreamRef.current) {
-          for (const track of localStreamRef.current.getTracks()) {
-            if (!pc.getSenders().some((s) => s.track?.id === track.id)) {
-              pc.addTrack(track, localStreamRef.current);
-            }
-          }
-        }
-        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        sendSignal("webrtc_answer", { sdp: answer });
-        return;
-      }
-
-      if (payload.type === "webrtc_answer" && payload.sdp && pcRef.current) {
-        setRtcDebug((prev) => ({ ...prev, answer_recv: prev.answer_recv + 1, last_event: "recv:webrtc_answer" }));
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        return;
-      }
-
-      if (payload.type === "webrtc_ice" && payload.candidate && pcRef.current) {
-        setRtcDebug((prev) => ({ ...prev, ice_recv: prev.ice_recv + 1, last_event: "recv:webrtc_ice" }));
-        try {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
-        } catch {
-          // Ignore invalid or stale ICE candidates.
-        }
-        return;
-      }
-
-      if (payload.type === "webrtc_hangup") {
-        setRtcDebug((prev) => ({ ...prev, hangup_recv: prev.hangup_recv + 1, last_event: "recv:webrtc_hangup" }));
-        onPeerLeftCall();
-      }
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [wsUrl, preferredPeerId, role, session?.email]);
-
-  useEffect(() => {
-    if (isInCall) {
-      void maybeCreateOffer();
-    }
-  }, [isInCall, selfUserId, peerUserId]);
-
-  useEffect(() => {
-    if (!isInCall) return;
-    const id = window.setInterval(() => {
-      if (!peerConnected) sendSignal("webrtc_ready");
-    }, 2000);
-    return () => window.clearInterval(id);
-  }, [isInCall, peerConnected]);
-
-  useEffect(() => {
-    if (!isInCall) return;
-    if (localVideoRef.current && localStreamRef.current) {
-      localVideoRef.current.srcObject = localStreamRef.current;
-      void localVideoRef.current.play().catch(() => {
-        setLocalVideoState("autoplay_blocked");
-      });
-    }
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      void remoteVideoRef.current.play().catch(() => {
-        // Browser autoplay policy can block; user can interact with call controls.
-      });
-    }
-  }, [isInCall, peerConnected]);
-
-  useEffect(() => {
-    return () => {
-      leaveCall(false);
-    };
-  }, []);
-
-  function send(event: FormEvent) {
-    event.preventDefault();
-    const value = text.trim();
-    if (!value || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ message: value }));
-    setText("");
+    setRecording(data);
+    setRecordingAttempts((current) =>
+      [data as Recording, ...current.filter((item) => item.id !== data?.id)].sort(
+        (a, b) => (b.attempt_number ?? 0) - (a.attempt_number ?? 0),
+      ),
+    );
+    setRecordingMessage("Meeting recording is active and will remain available for student review.");
   }
 
   async function updateVisibility() {
     if (!visibility) return;
     setVisibilityBusy(true);
     try {
-      const payload =
-        role === "mentor"
-          ? {}
-          : {
-              visible_to_mentor: visibility.visible_to_mentor,
-              visible_to_manager: visibility.visible_to_manager,
-              visible_to_admin: visibility.visible_to_admin,
-            };
       const resp = await authedFetch(`/sessions/${sessionId}/recording-visibility`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(visibility),
       });
       const data = await parseJsonSafe(resp);
       if (resp.ok) {
         setVisibility(data);
-        setRecordingMessage("Recording visibility updated");
-      } else {
-        setRecordingMessage(data?.detail ?? "Failed to update visibility");
       }
     } finally {
       setVisibilityBusy(false);
     }
   }
 
+  async function deleteRecording() {
+    const confirmed = window.confirm("Delete this recording? Students will lose access until a new recording is generated.");
+    if (!confirmed) return;
+    const resp = await authedFetch(`/sessions/${sessionId}/recording`, { method: "DELETE" });
+    if (resp.ok) {
+      setRecording(null);
+      setRecordingMessage("Recording deleted.");
+    }
+  }
+
+  useEffect(() => {
+    void bootstrap();
+  }, [sessionId, hasHydrated, authSession?.accessToken]);
+
+  useEffect(() => {
+    if (!wsUrl) return;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      let payload: SignalPayload;
+      try {
+        payload = JSON.parse(event.data) as SignalPayload;
+      } catch {
+        return;
+      }
+
+      if (payload.type === "presence_snapshot") {
+        setRoomParticipants(payload.participants ?? []);
+        return;
+      }
+      if (payload.type === "presence" || payload.type === "presence_leave") {
+        void bootstrap();
+        return;
+      }
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [wsUrl]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    void ensureRecordingStarted();
+    const id = window.setInterval(() => {
+      void loadRecording();
+    }, 10000);
+    return () => window.clearInterval(id);
+  }, [isConnected]);
+
+  const recordingEta = useMemo(() => {
+    const durationMinutes = sessionInfo?.duration_minutes ?? 60;
+    const processingMinutes = Math.max(3, Math.min(18, Math.ceil(durationMinutes / 8)));
+    const createdAt = recording?.created_at ? new Date(recording.created_at) : null;
+    const now = new Date();
+    const baseTime = createdAt && createdAt.getTime() > now.getTime() ? createdAt : now;
+    const readyAt = new Date(baseTime.getTime() + processingMinutes * 60 * 1000);
+    return {
+      processingMinutes,
+      readyAtLabel: formatIstTime(readyAt),
+    };
+  }, [recording?.created_at, sessionInfo?.duration_minutes]);
+
+  const recordingStatus = useMemo(() => {
+    if (recording?.status === "uploaded") {
+      return {
+        label: "Recording Available",
+        icon: "fa-circle-check",
+        className: "border-sky-200 bg-sky-50 text-sky-800",
+        note: "The latest recording is ready to watch.",
+      };
+    }
+    if (recording?.status === "failed") {
+      return {
+        label: "Recording Failed",
+        icon: "fa-triangle-exclamation",
+        className: "border-rose-200 bg-rose-50 text-rose-700",
+        note: recording.error_message || "The latest recording attempt failed.",
+      };
+    }
+    if (recording?.status === "recording" && isConnected) {
+      return {
+        label: "Recording In Progress",
+        icon: "fa-record-vinyl",
+        className: "border-red-200 bg-red-50 text-red-700",
+        note: "The meeting is live and the current attempt is recording.",
+      };
+    }
+    if (recording?.status === "recording") {
+      return {
+        label: "Finalizing Recording",
+        icon: "fa-clock",
+        className: "border-amber-200 bg-amber-50 text-amber-800",
+        note: `The meeting ended. Recording review should be ready in about ${recordingEta.processingMinutes} minutes, around ${recordingEta.readyAtLabel} IST.`,
+      };
+    }
+    if (recording?.status === "queued") {
+      return {
+        label: "Preparing Recording",
+        icon: "fa-clock",
+        className: "border-amber-200 bg-amber-50 text-amber-800",
+        note: `Processing has started. Recording review should be ready in about ${recordingEta.processingMinutes} minutes, around ${recordingEta.readyAtLabel} IST.`,
+      };
+    }
+    return {
+      label: "Recording Starts Automatically",
+      icon: "fa-cloud-arrow-up",
+      className: "border-slate-200 bg-slate-50 text-slate-700",
+      note: recordingMessage || "Recording starts automatically when the meeting begins.",
+    };
+  }, [isConnected, recording, recordingEta, recordingMessage]);
+
   return (
     <section className="space-y-4">
-      <header className="rounded-xl bg-card p-5 shadow-sm">
-        <h1 className="text-2xl font-bold">Session Hub</h1>
-        <p className="text-sm text-black/70">Session ID: {sessionId}</p>
-        {callError && <p className="mt-2 text-sm text-red-600">{callError}</p>}
+      <header className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-teal-50 p-6 shadow-sm">
+        <div className="pointer-events-none absolute right-0 top-0 h-40 w-40 rounded-full bg-teal-100/70 blur-3xl" />
+        <div className="pointer-events-none absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-amber-100/70 blur-2xl" />
+
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
+            <p className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600">
+              <i className="fa-solid fa-video text-teal-600" />
+              mentorXAI Meeting Space
+            </p>
+            <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">Meeting Room</h1>
+            <p className="mt-2 max-w-xl text-sm text-slate-600">
+              Secure live session space for scheduled classes and instant mentor calls.
+            </p>
+          </div>
+          {sessionInfo && (
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm ${sessionStatusClasses(sessionInfo.status)}`}>
+              <i className={sessionStatusIcon(sessionInfo.status)} />
+              {formatSessionStatus(sessionInfo.status)}
+            </span>
+          )}
+        </div>
+
+        {callError && (
+          <div className="relative mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <div className="flex items-start gap-3">
+              <i className="fa-solid fa-triangle-exclamation mt-0.5" />
+              <p>{callError}</p>
+            </div>
+          </div>
+        )}
+
         {sessionInfo && (
-          <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-              <p className="text-slate-500">Session Name</p>
-              <p className="font-semibold text-slate-800">{sessionInfo.title}</p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-              <p className="text-slate-500">When</p>
-              <p className="font-semibold text-slate-800">{new Date(sessionInfo.starts_at).toLocaleString()}</p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-              <p className="text-slate-500">Duration / Status</p>
-              <p className="font-semibold text-slate-800">
-                {sessionInfo.duration_minutes} min • {sessionInfo.status}
-              </p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 md:col-span-2">
-              <p className="text-slate-500">Participants</p>
-              <p className="font-semibold text-slate-800">
-                Student: {participants?.student?.name ?? sessionInfo.student_id} | Mentor:{" "}
-                {participants?.mentor?.name ?? sessionInfo.mentor_id}
-              </p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 md:col-span-3">
-              <p className="text-slate-500">In Room</p>
-              <div className="mt-1 flex flex-wrap gap-1">
-                {roomParticipants.map((p) => (
-                  <span key={p.user_id} className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                    {p.user_name ?? p.user_id} {p.user_role ? `(${p.user_role})` : ""}
-                  </span>
-                ))}
-                {roomParticipants.length === 0 && <span className="text-[11px] text-slate-500">Waiting for participants</span>}
+          <div className="relative mt-5 grid gap-4 xl:grid-cols-[1.4fr_0.9fr]">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Session</p>
+                <p className="mt-2 text-lg font-semibold text-slate-950">{sessionInfo.title}</p>
+                <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  <i className="fa-solid fa-hashtag text-slate-400" />
+                  {sessionInfo.id.slice(0, 8)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Schedule</p>
+                <div className="mt-3 space-y-3 text-sm text-slate-700">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+                      <i className="fa-solid fa-calendar-day" />
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">{formatIstDateTime(sessionInfo.starts_at)}</p>
+                      <p className="text-xs text-slate-500">IST</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+                      <i className="fa-regular fa-clock" />
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">{sessionInfo.duration_minutes} minutes</p>
+                      <p className="text-xs text-slate-500">Planned meeting duration</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm md:col-span-2">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Participants</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Student</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{participants?.student?.name ?? sessionInfo.student_id}</p>
+                    <p className="mt-1 text-xs text-slate-500">{participants?.student?.email ?? sessionInfo.student_id}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Mentor</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-900">{participants?.mentor?.name ?? sessionInfo.mentor_id}</p>
+                    <p className="mt-1 text-xs text-slate-500">{participants?.mentor?.email ?? sessionInfo.mentor_id}</p>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
-              <p className="text-slate-500">Notes</p>
-              <p className="font-semibold text-slate-800">{sessionInfo.notes || "No notes"}</p>
+
+            <div className="grid gap-4">
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Room Presence</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {roomParticipants.length > 0 ? (
+                    roomParticipants.map((person) => (
+                      <span
+                        key={person.connection_id ?? `${person.user_id}-${person.joined_at ?? ""}`}
+                        className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800"
+                      >
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        {person.user_name ?? person.user_id}
+                      </span>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                      Waiting for participants to join the room.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Meeting Notes</p>
+                <p className="mt-3 text-sm font-medium leading-6 text-slate-800">
+                  {sessionInfo.notes || "No additional notes for this meeting."}
+                </p>
+              </div>
             </div>
           </div>
         )}
       </header>
 
-      <article className="rounded-xl bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">Call (WebRTC)</h2>
-          {!isInCall ? (
-            <button className="rounded-md bg-accent px-4 py-2 text-sm text-white" onClick={() => void startCall()}>
-              Join Call
+      <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Live Meeting</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Shared room for student and mentor with automatic cloud recording and retained playback.
+            </p>
+          </div>
+          {!connectLiveKit ? (
+            <button
+              className="rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+              onClick={() => void prepareJoin()}
+              disabled={isJoining}
+            >
+              <i className={`mr-2 ${isJoining ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-video"}`} />
+              {isJoining ? "Preparing Room" : "Join Meeting"}
             </button>
           ) : (
-            <button className="rounded-md border px-4 py-2 text-sm" onClick={() => leaveCall(true)}>
-              Leave Call
+            <button
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
+              onClick={() => {
+                setConnectLiveKit(false);
+                setIsConnected(false);
+              }}
+            >
+              <i className="fa-solid fa-phone-slash mr-2" />
+              Leave Meeting
             </button>
           )}
         </div>
-        {!isInCall && (
-          <p className="mt-2 text-sm text-black/70">
-            {canUseLocalMedia
-              ? "Click Join Call to start direct student-mentor WebRTC audio/video."
-              : "Mic/camera access is blocked on HTTP. Open this app via HTTPS or localhost."}
-          </p>
-        )}
-        {!canRunWebRtcCall && <p className="mt-2 text-sm text-black/70">Manager/Admin can review chat and recordings; live call is student-mentor only.</p>}
-        {isInCall && (
-          <>
-            <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-700">
-              <div className="grid gap-1 md:grid-cols-3">
-                <p>WS: {rtcDebug.ws_state}</p>
-                <p>PC: {rtcDebug.pc_state}</p>
-                <p>ICE: {rtcDebug.ice_state}</p>
-                <p>ready s/r: {rtcDebug.ready_sent}/{rtcDebug.ready_recv}</p>
-                <p>offer s/r: {rtcDebug.offer_sent}/{rtcDebug.offer_recv}</p>
-                <p>answer s/r: {rtcDebug.answer_sent}/{rtcDebug.answer_recv}</p>
-                <p>ice s/r: {rtcDebug.ice_sent}/{rtcDebug.ice_recv}</p>
-                <p>hangup s/r: {rtcDebug.hangup_sent}/{rtcDebug.hangup_recv}</p>
-                <p>ws msgs: {rtcDebug.ws_messages_recv}</p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${isConnected ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+            <i className={`fa-solid ${isConnected ? "fa-signal" : "fa-door-open"}`} />
+            {isConnected ? "Connected to Meeting" : "Ready to Join"}
+          </span>
+          <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${recordingStatus.className}`}>
+            <i className={`fa-solid ${recordingStatus.icon}`} />
+            {recordingStatus.label}
+          </span>
+        </div>
+
+        <p className="mt-3 text-sm text-slate-600">{recordingStatus.note}</p>
+
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+          {joinData && connectLiveKit ? (
+            <LiveKitRoom
+              token={joinData.token}
+              serverUrl={joinData.livekit_url}
+              connect={connectLiveKit}
+              video
+              audio
+              data-lk-theme="default"
+              className="h-[720px]"
+              onConnected={() => {
+                setIsConnected(true);
+                setCallError("");
+              }}
+              onDisconnected={() => {
+                setIsConnected(false);
+                setConnectLiveKit(false);
+                void loadRecording();
+              }}
+              onError={(error) => {
+                setCallError(error.message || "Unable to connect to meeting room.");
+              }}
+            >
+              <MeetingStage />
+              <RoomAudioRenderer />
+            </LiveKitRoom>
+          ) : (
+            <div className="flex h-[420px] flex-col items-center justify-center gap-3 px-6 text-center text-slate-200">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                <i className="fa-solid fa-video text-2xl" />
               </div>
-              <p className="mt-1 text-slate-500">Last: {rtcDebug.last_event}</p>
-            </div>
-            <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/20 bg-black/70 px-4 py-3 shadow-xl backdrop-blur">
-              <button
-                className={`inline-flex h-12 w-12 items-center justify-center rounded-full text-white ${isMicEnabled ? "bg-slate-700 hover:bg-slate-800" : "bg-amber-500 hover:bg-amber-600"}`}
-                onClick={toggleMic}
-                title={isMicEnabled ? "Mute microphone" : "Unmute microphone"}
-                aria-label={isMicEnabled ? "Mute microphone" : "Unmute microphone"}
-              >
-                <i className={`fa-solid ${isMicEnabled ? "fa-microphone" : "fa-microphone-slash"}`} />
-              </button>
-              <button
-                className={`inline-flex h-12 w-12 items-center justify-center rounded-full text-white ${isCamEnabled ? "bg-slate-700 hover:bg-slate-800" : "bg-amber-500 hover:bg-amber-600"}`}
-                onClick={toggleCam}
-                title={isCamEnabled ? "Turn camera off" : "Turn camera on"}
-                aria-label={isCamEnabled ? "Turn camera off" : "Turn camera on"}
-              >
-                <i className={`fa-solid ${isCamEnabled ? "fa-video" : "fa-video-slash"}`} />
-              </button>
-              <button
-                className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700"
-                onClick={() => leaveCall(true)}
-                title="Leave call"
-                aria-label="Leave call"
-              >
-                <i className="fa-solid fa-phone-slash" />
-              </button>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="rounded-md border bg-black p-2">
-                <p className="mb-2 text-xs text-slate-200">
-                  Your Camera {isMicEnabled ? "" : "• muted"} {isCamEnabled ? "" : "• video off"} • {localVideoState}
+              <div>
+                <p className="text-lg font-semibold">Meeting room is ready</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  Join to start camera, microphone, and automatic session recording.
                 </p>
-                <video ref={localVideoRef} autoPlay playsInline muted className="h-64 w-full rounded object-cover" />
-              </div>
-              <div className="rounded-md border bg-black p-2">
-                <p className="mb-2 text-xs text-slate-200">Peer Camera {peerConnected ? "• connected" : "• waiting"}</p>
-                <video ref={remoteVideoRef} autoPlay playsInline className="h-64 w-full rounded object-cover" />
               </div>
             </div>
-          </>
-        )}
+          )}
+        </div>
       </article>
 
-      <article className="rounded-xl bg-card p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Recording</h2>
-          {role !== "student" && (
-            <button className="rounded-md border px-3 py-1.5 text-xs" onClick={() => void loadRecording()}>
+      <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-950">Recording Review</h2>
+          {(role === "mentor" || role === "manager" || role === "admin") && (
+            <button className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700" onClick={() => void loadRecording()}>
               Refresh
             </button>
           )}
         </div>
         {recording && recording.playback_url ? (
-          <div className="mt-3 space-y-2">
-            <p className="text-sm text-black/70">Status: {recording.status}</p>
-            <a
-              className="inline-flex rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white"
-              href={recording.playback_url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Recording
-            </a>
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${recordingStatus.className}`}>
+                <i className={`fa-solid ${recordingStatus.icon}`} />
+                {recordingStatus.label}
+              </span>
+              {(role === "manager" || role === "admin") && (
+                <button className="rounded-xl border border-rose-300 px-3 py-1.5 text-sm font-semibold text-rose-700" onClick={() => void deleteRecording()}>
+                  Delete Recording
+                </button>
+              )}
+            </div>
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-black">
+              <video
+                src={recording.playback_url}
+                controls
+                controlsList="nodownload noplaybackrate"
+                className="h-80 w-full bg-black"
+                preload="metadata"
+                onContextMenu={(e) => e.preventDefault()}
+              />
+            </div>
+            <p className="text-xs text-slate-500">Recording is retained for student reference until manager or admin deletes it.</p>
           </div>
         ) : (
-          <p className="mt-2 text-sm text-black/70">
-            {role === "student"
-              ? "Recording will appear automatically after call completion."
-              : recordingMessage || "Recording not ready yet."}
-          </p>
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-slate-600">{recordingStatus.note}</p>
+            {(role === "manager" || role === "admin") && recording && (
+              <button className="rounded-xl border border-rose-300 px-3 py-1.5 text-sm font-semibold text-rose-700" onClick={() => void deleteRecording()}>
+                Delete Recording
+              </button>
+            )}
+          </div>
+        )}
+
+        {recordingAttempts.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-slate-900">Recorded Sessions</p>
+              <p className="text-xs text-slate-500">{recordingAttempts.length} total</p>
+            </div>
+            <div className="mt-3 space-y-2">
+              {recordingAttempts.map((attempt) => (
+                <div key={attempt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Session {attempt.attempt_number}</p>
+                    <p className="text-xs text-slate-500">
+                      {attempt.created_at ? formatIstDateTime(attempt.created_at) : "Timestamp unavailable"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                      {attempt.status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())}
+                    </span>
+                    {attempt.playback_url && (
+                      <a
+                        href={attempt.playback_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      >
+                        Open
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {canManageVisibility && visibility && (
-          <div className="mt-4 space-y-2 rounded-lg border p-3">
-            <p className="text-sm font-semibold">Visibility Control</p>
-            <p className="text-sm text-slate-600">Student visibility is always enabled.</p>
+          <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 p-4">
+            <p className="text-sm font-semibold">Moderation & Visibility</p>
+            <p className="text-sm text-slate-600">Use these controls to hide a recording from users or remove it entirely if the content is not acceptable.</p>
             {role !== "mentor" && (
               <>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={visibility.visible_to_mentor}
-                    onChange={(e) => setVisibility((v) => (v ? { ...v, visible_to_mentor: e.target.checked } : v))}
+                    checked={visibility.visible_to_student}
+                    onChange={(e) => setVisibility((current) => (current ? { ...current, visible_to_student: e.target.checked } : current))}
                   />
-                  Mentor can view recording
+                  Student can review recording
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={visibility.visible_to_mentor}
+                    onChange={(e) => setVisibility((current) => (current ? { ...current, visible_to_mentor: e.target.checked } : current))}
+                  />
+                  Mentor can review recording
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={visibility.visible_to_manager}
-                    onChange={(e) => setVisibility((v) => (v ? { ...v, visible_to_manager: e.target.checked } : v))}
+                    onChange={(e) => setVisibility((current) => (current ? { ...current, visible_to_manager: e.target.checked } : current))}
                   />
-                  Manager can view recording
+                  Manager can review recording
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={visibility.visible_to_admin}
-                    onChange={(e) => setVisibility((v) => (v ? { ...v, visible_to_admin: e.target.checked } : v))}
+                    onChange={(e) => setVisibility((current) => (current ? { ...current, visible_to_admin: e.target.checked } : current))}
                   />
-                  Admin can view recording
+                  Admin can review recording
                 </label>
               </>
             )}
-            <button
-              className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-              onClick={() => void updateVisibility()}
-              disabled={visibilityBusy}
-            >
+            <button className="rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50" onClick={() => void updateVisibility()} disabled={visibilityBusy}>
               {visibilityBusy ? "Saving..." : "Save Visibility"}
             </button>
           </div>
         )}
-      </article>
-
-      <article className="rounded-xl bg-card p-5 shadow-sm">
-        <h2 className="text-lg font-semibold">Realtime Chat</h2>
-        <div className="mt-3 max-h-80 space-y-2 overflow-y-auto rounded-md border p-3 text-sm">
-          {messages.map((m) => (
-            <div key={m.id} className="rounded border p-2">
-              <div className="text-xs text-black/60">
-                {m.sender_id === participants?.student?.id
-                  ? participants?.student?.name
-                  : m.sender_id === participants?.mentor?.id
-                    ? participants?.mentor?.name
-                    : m.sender_id}
-              </div>
-              <div>{m.message}</div>
-            </div>
-          ))}
-          {messages.length === 0 && <p className="text-black/60">No messages yet.</p>}
-        </div>
-
-        <form className="mt-3 flex gap-2" onSubmit={send}>
-          <input
-            className="flex-1 rounded-md border px-3 py-2"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Type a message"
-          />
-          <button type="submit" className="rounded-md bg-accent px-4 py-2 text-white">
-            Send
-          </button>
-        </form>
       </article>
     </section>
   );

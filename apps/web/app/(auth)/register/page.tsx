@@ -40,7 +40,7 @@ export default function RegisterPage() {
   return (
     <section className="mx-auto max-w-md space-y-4">
       <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-cyan-800 p-5 text-white shadow-lg">
-        <p className="text-xs font-semibold uppercase tracking-wider text-white/80">Join MentorX</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-white/80">Join mentorXAI</p>
         <h1 className="mt-1 text-2xl font-extrabold">Create account</h1>
         <p className="mt-1 text-sm text-white/85">Register as student, mentor, manager, or admin for testing.</p>
       </div>

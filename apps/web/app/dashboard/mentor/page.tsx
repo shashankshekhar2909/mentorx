@@ -186,26 +186,6 @@ export default function MentorDashboardPage() {
     await refresh();
   }
 
-  async function startRecording(sessionId: string) {
-    setBusy(sessionId);
-    await authedFetch("/sessions/recordings/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId }),
-    });
-    setBusy(null);
-  }
-
-  async function completeRecording(sessionId: string) {
-    setBusy(sessionId);
-    await authedFetch("/sessions/recordings/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: sessionId, object_key: `recordings/${sessionId}.mp4` }),
-    });
-    setBusy(null);
-  }
-
   async function approveSession(sessionId: string) {
     setBusy(sessionId);
     await authedFetch(`/sessions/${sessionId}/approve`, { method: "POST" });
@@ -398,26 +378,10 @@ export default function MentorDashboardPage() {
                   Approve Request
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => startRecording(booking.id)}
-                disabled={busy === booking.id}
-                className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-              >
-                Start Recording
-              </button>
-              <button
-                type="button"
-                onClick={() => completeRecording(booking.id)}
-                disabled={busy === booking.id}
-                className="rounded-md bg-accent px-3 py-1.5 text-sm text-white"
-              >
-                Mark Recording Uploaded
-              </button>
               {["confirmed", "ready_to_join", "in_progress"].includes(booking.status) && (
                 <a className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white" href={`/dashboard/sessions/${booking.id}`}>Join Call</a>
               )}
-              <a className="rounded-md border px-3 py-1.5 text-sm" href={`/dashboard/sessions/${booking.id}`}>Open Session Hub</a>
+              <a className="rounded-md border px-3 py-1.5 text-sm" href={`/dashboard/sessions/${booking.id}`}>Open Meeting Review</a>
             </div>
           </article>
         ))}

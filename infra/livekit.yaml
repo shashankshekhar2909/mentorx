@@ -2,6 +2,8 @@ port: 7880
 log_level: info
 keys:
   devkey: devsecret
+redis:
+  address: redis:6379
 rtc:
   use_external_ip: false
   udp_port: 7881

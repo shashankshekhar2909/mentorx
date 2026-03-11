@@ -44,16 +44,22 @@ export function DashboardShell({ role, title, children }: Props) {
     if (session.role === "student") {
       return [
         { href: "/dashboard/student", label: "Student Home" },
+        { href: "/dashboard/student/mentors", label: "Mentors" },
+        { href: "/dashboard/student/chats", label: "Chats" },
         { href: "/dashboard/calendar", label: "Calendar" },
         { href: "/dashboard/recordings", label: "Recordings" },
+        { href: "/dashboard/profile", label: "Profile" },
         { href: "/dashboard/resources", label: "Resources" },
       ];
     }
     if (session.role === "mentor") {
       return [
         { href: "/dashboard/mentor", label: "Mentor Home" },
+        { href: "/dashboard/mentor/students", label: "Students" },
+        { href: "/dashboard/mentor/chats", label: "Chats" },
         { href: "/dashboard/calendar", label: "Calendar" },
         { href: "/dashboard/recordings", label: "Recordings" },
+        { href: "/dashboard/profile", label: "Profile" },
       ];
     }
     if (session.role === "manager") {
@@ -61,6 +67,7 @@ export function DashboardShell({ role, title, children }: Props) {
         { href: "/dashboard/manager", label: "Manager Home" },
         { href: "/dashboard/calendar", label: "Calendar" },
         { href: "/dashboard/recordings", label: "Recordings" },
+        { href: "/dashboard/profile", label: "Profile" },
         { href: "/dashboard/admin/sessions", label: "Sessions" },
         { href: "/dashboard/admin/users", label: "Users" },
         { href: "/dashboard/admin/verifications", label: "Verifications" },
@@ -72,6 +79,7 @@ export function DashboardShell({ role, title, children }: Props) {
       { href: "/dashboard/admin", label: "Admin Home" },
       { href: "/dashboard/calendar", label: "Calendar" },
       { href: "/dashboard/recordings", label: "Recordings" },
+      { href: "/dashboard/profile", label: "Profile" },
       { href: "/dashboard/admin/sessions", label: "Sessions" },
       { href: "/dashboard/admin/verifications", label: "Verifications" },
       { href: "/dashboard/admin/users", label: "Users" },
