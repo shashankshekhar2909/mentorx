@@ -29,7 +29,7 @@ type StudentRecording = {
 };
 
 function statusLabel(status: string): string {
-  if (status === "recording") return "Recording In Progress";
+  if (status === "recording") return "Processing Recording";
   if (status === "queued") return "Preparing Recording";
   if (status === "uploaded") return "Ready to Watch";
   return status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
@@ -254,10 +254,10 @@ export default function StudentDashboardPage() {
           </div>
           <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
             {recordings.map((item) => (
-              <div key={item.session_id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div key={item.id ?? `${item.session_id}-${item.attempt_number ?? 0}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="font-semibold">{item.title}</p>
                 <p className="text-xs text-slate-500">{formatIstDateTime(item.starts_at)} • {statusLabel(item.status)}</p>
-                {item.playback_url ? (
+                {item.status === "uploaded" && item.playback_url ? (
                   <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-black">
                     <video
                       src={item.playback_url}
@@ -272,7 +272,7 @@ export default function StudentDashboardPage() {
                   <div className="mt-2 rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
                     {item.status === "failed"
                       ? item.error_message || "Recording failed for this session."
-                      : "Recording is being prepared and will appear here automatically."}
+                      : "Recording is being processed and will appear here automatically when ready."}
                   </div>
                 )}
               </div>

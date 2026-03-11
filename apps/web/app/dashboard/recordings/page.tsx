@@ -33,7 +33,7 @@ type RecordingRow = {
 };
 
 function statusLabel(status: string): string {
-  if (status === "recording") return "Recording In Progress";
+  if (status === "recording") return "Processing Recording";
   if (status === "queued") return "Preparing Recording";
   if (status === "uploaded") return "Ready to Watch";
   if (status === "failed") return "Recording Failed";
@@ -180,7 +180,7 @@ export default function RecordingsPage() {
                 <span>{item.duration_minutes} min</span>
                 <span>Attempt {item.attempt_number || 1}</span>
               </div>
-              {item.playback_url ? (
+              {item.status === "uploaded" && item.playback_url ? (
                 <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-black">
                   <video
                     src={item.playback_url}
@@ -200,7 +200,7 @@ export default function RecordingsPage() {
                   <p className="mt-2">
                     {item.status === "failed"
                       ? item.error_message || "The recording process failed for this call."
-                      : "The meeting has ended and the recording is still being processed. It will appear here automatically for both student and mentor."}
+                      : "The meeting has ended and the latest recording is still being processed. It will appear here automatically for both student and mentor."}
                   </p>
                 </div>
               )}

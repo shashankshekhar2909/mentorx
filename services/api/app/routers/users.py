@@ -100,7 +100,18 @@ def my_dashboard_summary(
     recordings = recordings_query.order_by(SessionRecording.created_at.desc(), SessionRecording.updated_at.desc()).limit(recording_limit * 3).all()
 
     recording_items = []
+    latest_by_session: dict[str, SessionRecording] = {}
     for row in recordings:
+        existing = latest_by_session.get(row.session_id)
+        if not existing:
+            latest_by_session[row.session_id] = row
+            continue
+        row_created = row.created_at or row.updated_at
+        existing_created = existing.created_at or existing.updated_at
+        if row_created and existing_created and row_created > existing_created:
+            latest_by_session[row.session_id] = row
+
+    for row in latest_by_session.values():
         session = next((item for item in sessions if item.id == row.session_id), None)
         if not session:
             continue
@@ -121,8 +132,10 @@ def my_dashboard_summary(
                 "duration_minutes": session.duration_minutes,
             }
         )
-        if len(recording_items) >= recording_limit:
-            break
+    recording_items.sort(
+        key=lambda item: str(item.get("created_at") or item.get("starts_at") or ""),
+        reverse=True,
+    )
 
     return {
         "sessions": [
@@ -139,7 +152,7 @@ def my_dashboard_summary(
             }
             for row in sessions
         ],
-        "recordings": recording_items,
+        "recordings": recording_items[:recording_limit],
     }
 
 

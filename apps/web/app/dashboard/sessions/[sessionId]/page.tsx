@@ -378,7 +378,7 @@ export default function SessionHubPage() {
     }
     if (recording?.status === "recording" && isConnected) {
       return {
-        label: "Recording In Progress",
+        label: "Recording Live",
         icon: "fa-record-vinyl",
         className: "border-red-200 bg-red-50 text-red-700",
         note: "The meeting is live and the current attempt is recording.",
@@ -386,7 +386,7 @@ export default function SessionHubPage() {
     }
     if (recording?.status === "recording") {
       return {
-        label: "Finalizing Recording",
+        label: "Processing Recording",
         icon: "fa-clock",
         className: "border-amber-200 bg-amber-50 text-amber-800",
         note: `The meeting ended. Recording review should be ready in about ${recordingEta.processingMinutes} minutes, around ${recordingEta.readyAtLabel} IST.`,
