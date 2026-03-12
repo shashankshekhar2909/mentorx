@@ -107,27 +107,27 @@ export default function StudentMentorsPage() {
         <article className="app-card p-5">
           <h2 className="text-lg font-semibold">Select Category</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Choose a subject/category first. After a mentor accepts your connection, chat and instant call unlock.
+            Choose one of your approved study categories first. After a mentor accepts your connection, chat and instant call unlock.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveCategory("")}
-              className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${activeCategory === "" ? "border-teal-300 bg-teal-50 text-teal-800" : "border-slate-200 bg-white text-slate-700"}`}
-            >
-              All
-            </button>
-            {categories.map((item) => (
+            {categories
+              .filter((item) => studentCategories.includes(item.slug))
+              .map((item) => (
               <button
                 key={item.slug}
                 type="button"
                 onClick={() => setActiveCategory(item.slug)}
-                className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${activeCategory === item.slug ? "border-teal-300 bg-teal-50 text-teal-800" : studentCategories.includes(item.slug) ? "border-cyan-200 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-white text-slate-700"}`}
+                className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${activeCategory === item.slug ? "border-teal-300 bg-teal-50 text-teal-800" : "border-cyan-200 bg-cyan-50 text-cyan-800"}`}
               >
                 {item.name}
               </button>
             ))}
           </div>
+          {studentCategories.length === 0 && (
+            <p className="mt-3 text-sm text-slate-600">
+              Add approved study categories in your profile to start discovering mentors.
+            </p>
+          )}
           {message && <p className="mt-3 text-sm text-slate-700">{message}</p>}
         </article>
 
@@ -195,7 +195,7 @@ export default function StudentMentorsPage() {
               </article>
             );
           })}
-          {mentors.length === 0 && <p className="text-sm text-slate-500">No mentors found for this category.</p>}
+          {mentors.length === 0 && <p className="text-sm text-slate-500">No mentors found in your selected study category.</p>}
         </div>
       </section>
     </DashboardShell>

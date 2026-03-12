@@ -8,7 +8,9 @@ from ..core.deps import get_current_user
 from ..core.rbac import Role
 from ..models.chat_message import ChatMessage
 from ..models.chat_thread import ChatThread, ChatThreadStatus
+from ..models.category import Category
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
+from ..models.profile import Profile
 from ..models.session import Session as MentorshipSession, SessionStatus
 from ..models.user import User
 from ..schemas.chat import ChatMessageOut
@@ -34,6 +36,13 @@ def _normalize_subject(value: str) -> str:
     return cleaned
 
 
+def _student_allowed_subjects(db: Session, user_id: str) -> set[str]:
+    profile = db.query(Profile).filter(Profile.user_id == user_id).first()
+    profile_subjects = _parse_subjects(profile.target_exams if profile else "")
+    active_subjects = {row.slug.lower() for row in db.query(Category).filter(Category.is_active == True).all()}  # noqa: E712
+    return profile_subjects & active_subjects
+
+
 def _can_access_thread(thread: ChatThread, user: User) -> bool:
     return user.role == Role.admin or thread.student_id == user.id or thread.mentor_id == user.id
 
@@ -52,6 +61,13 @@ def _build_instant_session_title(thread: ChatThread) -> str:
     return f"{thread.subject}_{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M_utc')}"
 
 
+def _log_thread_event(db: Session, thread: ChatThread, actor_user_id: str, message: str) -> None:
+    row = ChatMessage(thread_id=thread.id, sender_id=actor_user_id, message=message)
+    db.add(row)
+    thread.last_message_preview = message[:240]
+    thread.last_message_at = datetime.now(timezone.utc)
+
+
 @router.get("/threads", response_model=list[ChatThreadOut])
 def list_threads(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     query = db.query(ChatThread)
@@ -61,8 +77,37 @@ def list_threads(db: Session = Depends(get_db), user: User = Depends(get_current
         query = query.filter(ChatThread.mentor_id == user.id)
     elif user.role not in (Role.manager, Role.admin):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+    query = query.filter(ChatThread.status != ChatThreadStatus.closed)
     rows = query.order_by(ChatThread.last_message_at.desc(), ChatThread.created_at.desc()).all()
-    return rows
+    pending_sessions = (
+        db.query(MentorshipSession)
+        .filter(
+            MentorshipSession.source_chat_thread_id.in_([row.id for row in rows] or [""]),
+            MentorshipSession.is_instant == True,  # noqa: E712
+            MentorshipSession.status.in_(
+                [
+                    SessionStatus.pending_mentor_approval,
+                    SessionStatus.confirmed,
+                    SessionStatus.ready_to_join,
+                    SessionStatus.in_progress,
+                ]
+            ),
+        )
+        .order_by(MentorshipSession.starts_at.desc())
+        .all()
+    )
+    pending_map: dict[str, MentorshipSession] = {}
+    for session in pending_sessions:
+        if session.source_chat_thread_id and session.source_chat_thread_id not in pending_map:
+            pending_map[session.source_chat_thread_id] = session
+    return [
+        {
+            **row.__dict__,
+            "pending_call_session_id": pending_map.get(row.id).id if pending_map.get(row.id) else None,
+            "pending_call_status": pending_map.get(row.id).status if pending_map.get(row.id) else None,
+        }
+        for row in rows
+    ]
 
 
 @router.post("/threads", response_model=ChatThreadOut)
@@ -75,6 +120,8 @@ def create_thread(payload: ChatThreadCreate, db: Session = Depends(get_db), user
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mentor is not approved for chat")
 
     subject = _normalize_subject(payload.subject)
+    if subject not in _student_allowed_subjects(db, user.id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose a category from your approved study categories")
     mentor_subjects = _parse_subjects(mentor.exams)
     if mentor_subjects and subject not in mentor_subjects:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mentor is not mapped to this subject")
@@ -112,6 +159,8 @@ def create_thread(payload: ChatThreadCreate, db: Session = Depends(get_db), user
         user_id=row.mentor_id,
         title="New chat request",
         message=f"Student requested a {row.subject} chat. Accept to start 1:1 messaging.",
+        event_type="chat_request",
+        link_path="/dashboard/mentor/chats",
     )
     return row
 
@@ -146,6 +195,8 @@ def update_thread_status(
             user_id=row.student_id,
             title="Chat accepted",
             message=f"Mentor accepted your {row.subject} chat request.",
+            event_type="chat_accepted",
+            link_path=f"/dashboard/student/chats?thread={row.id}",
         )
         return row
 
@@ -160,13 +211,9 @@ def update_thread_status(
             user_id=row.student_id,
             title="Chat request rejected",
             message=f"Mentor declined your {row.subject} chat request.",
+            event_type="chat_rejected",
+            link_path="/dashboard/student/mentors",
         )
-        return row
-
-    if action == "close":
-        row.status = ChatThreadStatus.closed
-        db.commit()
-        db.refresh(row)
         return row
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action")
@@ -213,6 +260,17 @@ def send_thread_message(
     row.last_message_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(message)
+    recipient_id = row.mentor_id if is_student else row.student_id
+    recipient_path = "/dashboard/mentor/chats" if is_student else "/dashboard/student/chats"
+    sender_label = "Student" if is_student else "Mentor"
+    notification_service.create(
+        db,
+        user_id=recipient_id,
+        title="New message",
+        message=f"{sender_label} sent a new message in your {row.subject} chat.",
+        event_type="chat_message",
+        link_path=f"{recipient_path}?thread={row.id}",
+    )
     return _serialize_message(message)
 
 
@@ -231,7 +289,14 @@ def start_instant_call(thread_id: str, db: Session = Depends(get_db), user: User
         .filter(
             MentorshipSession.source_chat_thread_id == row.id,
             MentorshipSession.is_instant == True,  # noqa: E712
-            MentorshipSession.status.in_([SessionStatus.confirmed, SessionStatus.ready_to_join, SessionStatus.in_progress]),
+            MentorshipSession.status.in_(
+                [
+                    SessionStatus.pending_mentor_approval,
+                    SessionStatus.confirmed,
+                    SessionStatus.ready_to_join,
+                    SessionStatus.in_progress,
+                ]
+            ),
         )
         .order_by(MentorshipSession.starts_at.desc())
         .first()
@@ -240,6 +305,7 @@ def start_instant_call(thread_id: str, db: Session = Depends(get_db), user: User
         return existing
 
     now = datetime.now(timezone.utc)
+    requested_by_student = user.id == row.student_id
     session = MentorshipSession(
         student_id=row.student_id,
         mentor_id=row.mentor_id,
@@ -247,7 +313,7 @@ def start_instant_call(thread_id: str, db: Session = Depends(get_db), user: User
         notes=f"Instant call launched from {row.subject} chat",
         starts_at=now,
         duration_minutes=60,
-        status=SessionStatus.ready_to_join,
+        status=SessionStatus.pending_mentor_approval if requested_by_student else SessionStatus.ready_to_join,
         source_chat_thread_id=row.id,
         is_instant=True,
     )
@@ -255,11 +321,29 @@ def start_instant_call(thread_id: str, db: Session = Depends(get_db), user: User
     db.commit()
     db.refresh(session)
 
+    _log_thread_event(
+        db,
+        row,
+        user.id,
+        (
+            f"Requested an instant call. Session ID: {session.id}"
+            if requested_by_student
+            else f"Started an instant call. Session ID: {session.id}"
+        ),
+    )
+    db.commit()
+
     other_user_id = row.mentor_id if row.student_id == user.id else row.student_id
     notification_service.create(
         db,
         user_id=other_user_id,
-        title="Incoming instant call",
-        message=f"{row.subject} call is ringing. Open session {session.id} to join now.",
+        title="Incoming instant call" if not requested_by_student else "Instant call request",
+        message=(
+            f"{row.subject} live call is ringing. Join now."
+            if not requested_by_student
+            else f"{row.subject} call request is waiting for mentor approval."
+        ),
+        event_type="instant_call" if not requested_by_student else "instant_call_request",
+        link_path=f"/dashboard/sessions/{session.id}",
     )
     return session

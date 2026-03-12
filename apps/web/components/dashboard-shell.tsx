@@ -19,7 +19,14 @@ export function DashboardShell({ role, title, children }: Props) {
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
 
   const allowedRoles = Array.isArray(role) ? role : [role];
-  const workspaceLabel = Array.isArray(role) ? role.join(" / ") : role;
+  const roleLabel =
+    session?.role === "student"
+      ? "Student Area"
+      : session?.role === "mentor"
+        ? "Mentor Area"
+        : session?.role === "manager"
+          ? "Manager Area"
+          : "Admin Area";
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -48,8 +55,6 @@ export function DashboardShell({ role, title, children }: Props) {
         { href: "/dashboard/student/chats", label: "Chats" },
         { href: "/dashboard/calendar", label: "Calendar" },
         { href: "/dashboard/recordings", label: "Recordings" },
-        { href: "/dashboard/profile", label: "Profile" },
-        { href: "/dashboard/resources", label: "Resources" },
       ];
     }
     if (session.role === "mentor") {
@@ -59,32 +64,22 @@ export function DashboardShell({ role, title, children }: Props) {
         { href: "/dashboard/mentor/chats", label: "Chats" },
         { href: "/dashboard/calendar", label: "Calendar" },
         { href: "/dashboard/recordings", label: "Recordings" },
-        { href: "/dashboard/profile", label: "Profile" },
       ];
     }
     if (session.role === "manager") {
       return [
         { href: "/dashboard/manager", label: "Manager Home" },
-        { href: "/dashboard/calendar", label: "Calendar" },
-        { href: "/dashboard/recordings", label: "Recordings" },
-        { href: "/dashboard/profile", label: "Profile" },
         { href: "/dashboard/admin/sessions", label: "Sessions" },
-        { href: "/dashboard/admin/users", label: "Users" },
         { href: "/dashboard/admin/verifications", label: "Verifications" },
-        { href: "/dashboard/admin/disputes", label: "Disputes" },
-        { href: "/dashboard/admin/analytics", label: "Analytics" },
+        { href: "/dashboard/admin/users", label: "Users" },
       ];
     }
     return [
       { href: "/dashboard/admin", label: "Admin Home" },
-      { href: "/dashboard/calendar", label: "Calendar" },
-      { href: "/dashboard/recordings", label: "Recordings" },
-      { href: "/dashboard/profile", label: "Profile" },
+      { href: "/dashboard/admin/system", label: "System" },
       { href: "/dashboard/admin/sessions", label: "Sessions" },
       { href: "/dashboard/admin/verifications", label: "Verifications" },
       { href: "/dashboard/admin/users", label: "Users" },
-      { href: "/dashboard/admin/disputes", label: "Disputes" },
-      { href: "/dashboard/admin/analytics", label: "Analytics" },
     ];
   })();
 
@@ -92,15 +87,21 @@ export function DashboardShell({ role, title, children }: Props) {
     <section className="space-y-6">
       <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-r from-white to-slate-50 p-6 shadow-sm">
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-teal-100/60 blur-2xl" />
-        <p className="inline-flex app-chip px-3 py-1 text-xs font-semibold uppercase tracking-wider">{workspaceLabel} workspace</p>
-        <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">{title}</h1>
-        <p className="mt-1 text-sm text-slate-600">Signed in as {session.email}</p>
+        <p className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+          {roleLabel}
+        </p>
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{title}</h1>
+            <p className="mt-1 text-sm text-slate-600">{session.email}</p>
+          </div>
+        </div>
         <nav className="mt-5 flex flex-wrap gap-2">
           {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:border-teal-200 hover:text-teal-700"
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-teal-200 hover:text-teal-700"
             >
               {link.label}
             </Link>

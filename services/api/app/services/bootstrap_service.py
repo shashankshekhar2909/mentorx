@@ -1,9 +1,12 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from ..core.config import settings
 from ..core.rbac import Role
 from ..core.security import hash_password
 from ..models.category import Category
+from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
+from ..models.profile import Profile
 from ..models.user import User
 from .storage_service import StorageService
 
@@ -24,6 +27,9 @@ DEFAULT_CATEGORIES = [
     ("GATE", "gate"),
     ("CAT", "cat"),
 ]
+
+DEFAULT_STUDENT_EXAMS = ",".join(slug for _, slug in DEFAULT_CATEGORIES)
+DEFAULT_MENTOR_EXAMS = "gate"
 
 
 def seed_default_users(db: Session) -> None:
@@ -128,6 +134,18 @@ def seed_default_users(db: Session) -> None:
             db.execute(text("ALTER TABLE sessions ADD COLUMN source_chat_thread_id VARCHAR(36)"))
         if columns and "is_instant" not in existing:
             db.execute(text("ALTER TABLE sessions ADD COLUMN is_instant BOOLEAN NOT NULL DEFAULT 0"))
+        if columns and "actual_started_at" not in existing:
+            db.execute(text("ALTER TABLE sessions ADD COLUMN actual_started_at DATETIME"))
+        if columns and "actual_ended_at" not in existing:
+            db.execute(text("ALTER TABLE sessions ADD COLUMN actual_ended_at DATETIME"))
+        if columns and "actual_duration_seconds" not in existing:
+            db.execute(text("ALTER TABLE sessions ADD COLUMN actual_duration_seconds INTEGER NOT NULL DEFAULT 0"))
+        if columns and "student_joined_at" not in existing:
+            db.execute(text("ALTER TABLE sessions ADD COLUMN student_joined_at DATETIME"))
+        if columns and "mentor_joined_at" not in existing:
+            db.execute(text("ALTER TABLE sessions ADD COLUMN mentor_joined_at DATETIME"))
+        if columns and "call_overlap_started_at" not in existing:
+            db.execute(text("ALTER TABLE sessions ADD COLUMN call_overlap_started_at DATETIME"))
         db.commit()
     except Exception:
         db.rollback()
@@ -137,6 +155,17 @@ def seed_default_users(db: Session) -> None:
         existing = {str(row[1]) for row in columns}
         if columns and "request_note" not in existing:
             db.execute(text("ALTER TABLE chat_threads ADD COLUMN request_note TEXT"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    try:
+        columns = db.execute(text("PRAGMA table_info(notifications)")).fetchall()
+        existing = {str(row[1]) for row in columns}
+        if columns and "event_type" not in existing:
+            db.execute(text("ALTER TABLE notifications ADD COLUMN event_type VARCHAR(64)"))
+        if columns and "link_path" not in existing:
+            db.execute(text("ALTER TABLE notifications ADD COLUMN link_path VARCHAR(255)"))
         db.commit()
     except Exception:
         db.rollback()
@@ -154,7 +183,57 @@ def seed_default_users(db: Session) -> None:
         db.add(User(email=email, hashed_password=hash_password(DEFAULT_PASSWORD), role=role))
     db.commit()
 
+    users_by_email = {row.email: row for row in db.query(User).filter(User.email.in_([email for email, _ in DEFAULT_USERS])).all()}
+
+    student = users_by_email.get("student.demo@exammentor.com")
+    if student:
+        profile = db.query(Profile).filter(Profile.user_id == student.id).first()
+        if not profile:
+            profile = Profile(user_id=student.id)
+            db.add(profile)
+        profile.full_name = profile.full_name or "Demo Student"
+        profile.target_exams = DEFAULT_STUDENT_EXAMS
+
+    mentor = users_by_email.get("mentor.demo@exammentor.com")
+    if mentor:
+        profile = db.query(Profile).filter(Profile.user_id == mentor.id).first()
+        if not profile:
+            profile = Profile(user_id=mentor.id)
+            db.add(profile)
+        profile.full_name = profile.full_name or "Demo Mentor"
+
+        mentor_profile = db.query(MentorProfile).filter(MentorProfile.user_id == mentor.id).first()
+        if not mentor_profile:
+            mentor_profile = MentorProfile(user_id=mentor.id)
+            db.add(mentor_profile)
+        mentor_profile.headline = mentor_profile.headline or "GATE mentor for quantitative and technical preparation"
+        mentor_profile.exams = DEFAULT_MENTOR_EXAMS
+        mentor_profile.years_experience = mentor_profile.years_experience or 6
+        mentor_profile.hourly_price = mentor_profile.hourly_price or 499
+        mentor_profile.rating_avg = mentor_profile.rating_avg or 4.8
+        mentor_profile.verification_status = MentorVerificationStatus.approved
+
+    manager = users_by_email.get("manager.demo@exammentor.com")
+    if manager:
+        profile = db.query(Profile).filter(Profile.user_id == manager.id).first()
+        if not profile:
+            profile = Profile(user_id=manager.id)
+            db.add(profile)
+        profile.full_name = profile.full_name or "Demo Manager"
+
+    admin = users_by_email.get("admin.demo@exammentor.com")
+    if admin:
+        profile = db.query(Profile).filter(Profile.user_id == admin.id).first()
+        if not profile:
+            profile = Profile(user_id=admin.id)
+            db.add(profile)
+        profile.full_name = profile.full_name or "Demo Admin"
+
+    db.commit()
+
 
 def ensure_storage_bucket() -> None:
+    if not settings.s3_auto_create_bucket:
+        return
     storage = StorageService()
     storage.ensure_bucket()

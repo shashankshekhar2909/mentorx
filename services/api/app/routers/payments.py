@@ -70,7 +70,9 @@ def verify_payment(
         db,
         user_id=session.mentor_id,
         title="New confirmed booking",
-        message=f"Session {session.id} has been paid and confirmed.",
+        message="A class booking has been paid and confirmed.",
+        event_type="payment_confirmed",
+        link_path=f"/dashboard/sessions/{session.id}",
     )
 
     return {"message": "Payment verified and session confirmed"}

@@ -49,3 +49,119 @@ h4 {
   background: #f8fbff;
   color: var(--ink-2);
 }
+
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.tilt-panel {
+  transform: rotateY(-16deg) rotateX(7deg);
+  transform-style: preserve-3d;
+}
+
+.tilt-panel-reverse {
+  transform: rotateY(16deg) rotateX(4deg);
+  transform-style: preserve-3d;
+}
+
+.float-slow {
+  animation: floatSlow 9s ease-in-out infinite;
+}
+
+.float-medium {
+  animation: floatMedium 7s ease-in-out infinite;
+}
+
+.float-fast {
+  animation: floatFast 6s ease-in-out infinite;
+}
+
+.orbit-chip {
+  animation: orbitChip 8s ease-in-out infinite;
+}
+
+.cta-pulse {
+  animation: ctaPulse 2.6s ease-in-out infinite;
+}
+
+.cta-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.18) 35%, rgba(255, 255, 255, 0.5) 50%, transparent 70%);
+  transform: translateX(-140%);
+  animation: ctaShimmer 3.4s ease-in-out infinite;
+}
+
+@keyframes floatSlow {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -18px, 0);
+  }
+}
+
+@keyframes floatMedium {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-10px, 14px, 0);
+  }
+}
+
+@keyframes floatFast {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(8px, -10px, 0);
+  }
+}
+
+@keyframes orbitChip {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(6px, -6px, 0);
+  }
+  50% {
+    transform: translate3d(12px, 2px, 0);
+  }
+  75% {
+    transform: translate3d(4px, 8px, 0);
+  }
+}
+
+@keyframes ctaPulse {
+  0%,
+  100% {
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18), 0 0 0 0 rgba(251, 191, 36, 0.16);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 18px 38px rgba(15, 23, 42, 0.22), 0 0 0 12px rgba(251, 191, 36, 0);
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes ctaShimmer {
+  0%,
+  100% {
+    transform: translateX(-140%);
+  }
+  55% {
+    transform: translateX(140%);
+  }
+}

@@ -21,6 +21,12 @@ class SessionOut(BaseModel):
     notes: str | None
     starts_at: datetime
     duration_minutes: int
+    actual_started_at: datetime | None = None
+    actual_ended_at: datetime | None = None
+    actual_duration_seconds: int = 0
+    student_joined_at: datetime | None = None
+    mentor_joined_at: datetime | None = None
+    call_overlap_started_at: datetime | None = None
     status: SessionStatus
     livekit_room: str | None
     source_chat_thread_id: str | None = None

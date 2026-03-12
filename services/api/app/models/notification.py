@@ -14,5 +14,7 @@ class Notification(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(180))
     message: Mapped[str] = mapped_column(Text)
+    event_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    link_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)

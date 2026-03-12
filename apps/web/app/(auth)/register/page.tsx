@@ -13,7 +13,7 @@ import type { Role } from "@/lib/types";
 const schema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(["student", "mentor", "manager", "admin"])
+  role: z.enum(["student", "mentor"])
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -42,7 +42,6 @@ export default function RegisterPage() {
       <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-cyan-800 p-5 text-white shadow-lg">
         <p className="text-xs font-semibold uppercase tracking-wider text-white/80">Join mentorXAI</p>
         <h1 className="mt-1 text-2xl font-extrabold">Create account</h1>
-        <p className="mt-1 text-sm text-white/85">Register as student, mentor, manager, or admin for testing.</p>
       </div>
       <div className="app-card p-6">
       <form className="mt-6 space-y-4" onSubmit={handleSubmit((values) => mutation.mutate(values))}>
@@ -59,8 +58,6 @@ export default function RegisterPage() {
           <select className="w-full rounded-md border px-3 py-2" {...formRegister("role")}>
             <option value="student">Student</option>
             <option value="mentor">Mentor</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
           </select>
         </label>
         {mutation.isError && <p className="text-sm text-red-600">{(mutation.error as Error).message}</p>}

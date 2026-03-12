@@ -37,6 +37,41 @@ This file is the shared working context for the project. It should be updated on
 - Marketplace checkout + access control hardening
 - Advanced analytics and moderation workflows
 
+## Latest Changes (2026-03-13)
+- Reworked admin home into a monitoring-first console in [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/page.tsx):
+  - stats and intervention queues now appear before drill-down actions
+  - recent call activity, dispute watch, recording watch, and quick links are grouped into a cleaner operations layout
+- Reworked manager home into a monitoring-first console in [/home/shashank/project/mentorx/apps/web/app/dashboard/manager/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/manager/page.tsx):
+  - queue health, live-call oversight, dispute visibility, and resource monitoring now appear before publishing tools
+  - study-material publishing remains on the same page but is pushed below the monitoring blocks
+- Added admin-only system stats tab at [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/system/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/system/page.tsx):
+  - surfaces API health, LiveKit reachability, bucket reachability, usage totals, and optional container status
+  - linked into admin navigation via [/home/shashank/project/mentorx/apps/web/components/dashboard-shell.tsx](/home/shashank/project/mentorx/apps/web/components/dashboard-shell.tsx)
+- Reduced admin and manager navigation noise:
+  - removed the duplicate local admin tab bar from [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/layout.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/layout.tsx)
+  - removed nested duplicate `DashboardShell` usage from [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/page.tsx) and [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/system/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/system/page.tsx)
+  - trimmed admin/manager shell navigation in [/home/shashank/project/mentorx/apps/web/components/dashboard-shell.tsx](/home/shashank/project/mentorx/apps/web/components/dashboard-shell.tsx) to a smaller set of primary links
+- Removed the container-status section from [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/system/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/system/page.tsx) because Docker CLI is not available inside the API runtime for this POC environment
+- Updated chat call-event rendering in [/home/shashank/project/mentorx/apps/web/components/chat-panel.tsx](/home/shashank/project/mentorx/apps/web/components/chat-panel.tsx):
+  - `Requested an instant call. Session ID: ...` now renders as a call-event pill
+  - call-event pills with a session ID show a direct `View Call Details` link
+- Reworked the public landing page design and content:
+  - [/home/shashank/project/mentorx/apps/web/app/page.tsx](/home/shashank/project/mentorx/apps/web/app/page.tsx) now uses a more premium hero, layered motion, pseudo-3D cards, and stronger product storytelling
+  - [/home/shashank/project/mentorx/apps/web/components/public-categories.tsx](/home/shashank/project/mentorx/apps/web/components/public-categories.tsx) now renders live categories as richer product cards instead of plain chips
+- Shifted the public landing page tone to feel more student-facing:
+  - homepage copy and palette now emphasize exam pressure, doubt solving, mentor trust, and revision support rather than product/ops messaging
+  - categories section now reads as student preparation tracks rather than software modules
+- Replaced repeated generic category-card copy in [/home/shashank/project/mentorx/apps/web/components/public-categories.tsx](/home/shashank/project/mentorx/apps/web/components/public-categories.tsx) with exam-specific descriptions by category slug
+- Restricted public registration to student and mentor only:
+  - removed manager/admin from the public role picker in [/home/shashank/project/mentorx/apps/web/app/(auth)/register/page.tsx](/home/shashank/project/mentorx/apps/web/app/(auth)/register/page.tsx)
+  - backend registration guard in [/home/shashank/project/mentorx/services/api/app/routers/auth.py](/home/shashank/project/mentorx/services/api/app/routers/auth.py) now rejects public creation of manager/admin accounts
+- Added backend admin infra endpoint in [/home/shashank/project/mentorx/services/api/app/routers/admin.py](/home/shashank/project/mentorx/services/api/app/routers/admin.py):
+  - `GET /api/admin/system-stats`
+  - returns API status, LiveKit status, bucket status, optional Docker container snapshot, and usage counts for users/sessions/recordings/resources
+- Added service health probes:
+  - [/home/shashank/project/mentorx/services/api/app/services/livekit_service.py](/home/shashank/project/mentorx/services/api/app/services/livekit_service.py) now exposes LiveKit connectivity health
+  - [/home/shashank/project/mentorx/services/api/app/services/storage_service.py](/home/shashank/project/mentorx/services/api/app/services/storage_service.py) now exposes bucket connectivity health
+
 ## Latest Changes (2026-03-10)
 - Added admin multi-page UI:
   - /dashboard/admin
@@ -218,6 +253,169 @@ This file is the shared working context for the project. It should be updated on
   - Docker compose web runtime fix (`infra/docker-compose.yml`):
     - changed web command from `npm run build && npm run start` to `npm run dev -- -p 3000` to remove repeated build/start windows that were causing intermittent Caddy `502` (`connect: connection refused`) during rebuild cycles.
 - 2026-03-11 in-app recording playback UX:
+## Latest Changes (2026-03-12)
+- Shifted POC direction toward hosted LiveKit instead of Docker-hosted LiveKit/egress.
+- Added hosted POC handoff doc: [docs/HOSTED_LIVEKIT_POC.md](/home/shashank/project/mentorx/docs/HOSTED_LIVEKIT_POC.md).
+- Updated [.env.example](/home/shashank/project/mentorx/.env.example) so hosted LiveKit + hosted object storage is the primary configuration path.
+- Made S3 integration more deployment-safe:
+  - added `S3_FORCE_PATH_STYLE`
+  - added `S3_AUTO_CREATE_BUCKET`
+  - bucket auto-create is now opt-in instead of always running on API startup
+- Updated storage clients and LiveKit egress upload config to respect `S3_FORCE_PATH_STYLE`, which is needed for mixed providers such as MinIO vs AWS S3/R2.
+- Made Dockerized local media optional in [infra/docker-compose.yml](/home/shashank/project/mentorx/infra/docker-compose.yml):
+  - `livekit`
+  - `livekit-egress`
+  - `minio`
+  - all now run only under the `local-media` compose profile
+- Removed hard API startup dependency on local `minio` and `livekit` containers so the app can run against hosted services without compose edits.
+- Working assumption for current POC:
+  - keep MentorX app local/in Docker
+  - use hosted LiveKit for browser sessions
+  - use external S3-compatible storage for recordings
+  - keep session recording enabled through LiveKit egress to that bucket
+- Confirmed current storage architecture already supports a single shared bucket for both documents and videos:
+  - mentor resources upload via `resources/<user_id>/...`
+  - session file uploads use `sessions/<session_id>/<user_id>/...`
+  - recordings use `recordings/<session_id>/session-<attempt>.mp4`
+  - no separate storage backend is required for POC document handling
+- Updated local `.env` toward hosted media:
+  - `LIVEKIT_URL` now points to LiveKit Cloud over `https://...`
+  - `LIVEKIT_PUBLIC_URL` now points to LiveKit Cloud over `wss://...`
+  - S3-compatible object storage vars were filled for hosted bucket use, including region/path-style flags
+- Restarted local app containers with hosted-media config using:
+  - `docker compose -f infra/docker-compose.yml up -d web api proxy redis`
+- Result:
+  - `api`, `web`, `proxy`, and `redis` restarted successfully
+  - old local `livekit`, `livekit-egress`, and `minio` containers are still present from earlier runs but are no longer required for the intended POC path
+  - direct host-port verification from the sandbox was inconclusive because `curl` to `127.0.0.1:3002/3003` was not reachable from this execution environment even though Docker reports the ports as published
+- First hosted-media test outcome:
+  - live call succeeded with LiveKit Cloud
+  - recording playback URL returned `404 Not Found`
+  - API logs show recording start succeeded: `POST /api/sessions/recordings/start HTTP/1.1" 200 OK`
+  - likely issue is now in recording upload/storage resolution rather than call connectivity
+  - current configured bucket endpoint string still uses `hel1.your-objectstorage.com`, which appears placeholder-like and should be validated against the real Hetzner Object Storage endpoint before further debugging
+- Follow-up recording diagnosis:
+  - confirmed the MP4 object exists in the bucket under `recordings/.../session-1.mp4`
+  - confirmed the API container can fetch the presigned URL successfully (`200`, `video/mp4`)
+  - root cause for stale UI was the session hub only polling recording status while the user remained connected to the call
+  - updated session hub to continue polling every 10s while any recording attempt remains in `queued` or `recording`, even after disconnect
+- Reset local SQLite DB and re-seeded baseline data.
+- Improved bootstrap demo data in [bootstrap_service.py](/home/shashank/project/mentorx/services/api/app/services/bootstrap_service.py):
+  - student demo profile now gets all 5 Indian exam categories:
+    - `upsc-cse`
+    - `jee-main-advanced`
+    - `neet-ug`
+    - `gate`
+    - `cat`
+  - demo mentor now gets an approved mentor profile for `gate`
+  - demo manager/admin get seeded profile names
+- Verified seeded state after restart:
+  - 5 active categories exist
+  - `student.demo@exammentor.com` has all 5 target exams
+  - `mentor.demo@exammentor.com` is approved and assigned to `gate`
+- Fixed student dashboard regression in [student/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/student/page.tsx):
+  - restored visible category-selection UI
+  - students can again add/remove/save study categories from the dashboard itself
+  - mentor discovery message about missing categories should no longer be a dead-end UX
+- Refined student category picker UX:
+  - replaced manual slug input with dropdown sourced from approved active categories
+  - selected chips now display human-readable category names
+  - moved `Save Categories` action to bottom-right of the card
+- Improved top-nav notification UX in [nav.tsx](/home/shashank/project/mentorx/apps/web/components/nav.tsx):
+  - incoming instant-call notifications now show an explicit `Join` action badge
+  - recording-ready notifications show `Watch`
+  - chat-related notifications show `Open`/`View`
+  - notification cards remain clickable and route using stored `link_path`
+- Added configurable public app URL for hosted recording templates:
+  - new env setting: `APP_PUBLIC_URL`
+  - current local value set to `https://mentor.buildwithshashank.com`
+- Switched LiveKit room-composite recording toward a custom template path in [livekit_service.py](/home/shashank/project/mentorx/services/api/app/services/livekit_service.py):
+  - uses `custom_base_url = APP_PUBLIC_URL + /recording-layout`
+- Added custom recording template page in [recording-layout/page.tsx](/home/shashank/project/mentorx/apps/web/app/recording-layout/page.tsx):
+  - screen share is primary when present
+  - otherwise layout is a stable equal 2-up participant view
+  - placeholder tile fills the second slot if only one participant remains, reducing blank tail-end frames
+- Updated live meeting UX in [sessions/[sessionId]/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/sessions/[sessionId]/page.tsx):
+  - call join is now audio-first (`video={false}` on connect)
+  - camera is still available later through meeting controls
+  - added fullscreen toggle button directly on the live stage
+  - updated join copy from “Join Meeting” to “Join Call”
+- Refined call join behavior by role:
+  - mentor now joins with camera enabled by default
+  - student still joins audio-first
+  - intent is to improve recording usefulness without forcing both sides into video
+- Added actual call timing persistence:
+  - new session fields: `actual_started_at`, `actual_ended_at`
+  - websocket presence now marks first join as call start and final leave as call end
+  - session status is moved to `in_progress` on first join and `completed` when the room empties
+- Updated session hub UI to show:
+  - planned meeting duration
+  - actual connected call duration
+  - explanatory note that recording length can be slightly longer than call duration due to room-composite startup/teardown time
+- Added explicit instant-call ending flow:
+  - new backend endpoint: `POST /api/sessions/{session_id}/end-call`
+  - ending an instant call marks the session `completed` so it is not reused next time
+  - session page leave action now becomes `End Call` for instant-call sessions
+  - top-nav incoming-call notifications now include a `Disconnect` action that ends the instant call before join
+- Added chat-native instant call logs to make call history visible inside the thread:
+  - starting an instant call writes `Started an instant call. Session ID: ...` into the chat
+  - ending a call writes `Call ended. Session ID: ... Duration: ...` into the chat when timing is available
+  - chat UI renders these call events as centered system-style pills instead of normal message bubbles
+- Fixed chat panel behavior:
+  - removed manual `Close` button from active chat connections so accepted mentor threads don't look accidentally disposable
+  - incoming instant-call banners in chat now resolve the session via notification `link_path`, so `Join Now` appears even when the notification message itself has no embedded session ID
+- Shifted instant-call flow to be chat-driven with mentor approval:
+  - active chat remains open for messaging after mentor acceptance; there is no manual close action in the normal active-thread UI
+  - student sees `Request Call`
+  - mentor sees `Approve & Join` for pending call requests
+  - both sides see `Join Call` only after approval
+  - backend reuses at most one non-finished instant-call session per chat thread at a time (`pending_mentor_approval` / `confirmed` / `ready_to_join` / `in_progress`)
+- Hardened chat-thread behavior:
+  - backend no longer supports user-driven `close` action for normal chat threads
+  - `closed` threads are filtered out from normal thread listings
+  - accepted mentor/student chat connections are intended to remain open for ongoing messaging and future call requests
+- Fixed stale incoming-call notifications:
+  - `Incoming instant call` notifications are now auto-pruned unless the linked session is still joinable
+  - completed/ended instant-call sessions no longer keep showing `Join Now` banners in chat or nav
+- Fixed student chat request form in [chat-panel.tsx](/home/shashank/project/mentorx/apps/web/components/chat-panel.tsx):
+  - selecting a mentor inside chat now works with a real category dropdown
+  - `Request Chat` no longer depends only on mentor-directory injected default subject state
+- Improved chat call-event UX:
+  - call event pills now parse `Session ID: ...`
+  - when present, the chat shows a `View Call Details` link that opens the session page directly
+- Fixed recordings list duration labels in [recordings/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/recordings/page.tsx):
+  - page now uses actual connected call duration when `actual_started_at` and `actual_ended_at` exist
+  - falls back to planned duration only when actual timing is unavailable
+  - avoids showing `60 min` for every instant call recording by default
+- Tightened recording stop behavior:
+  - added explicit LiveKit `stop_egress` support in [livekit_service.py](/home/shashank/project/mentorx/services/api/app/services/livekit_service.py)
+  - active recording is now explicitly stopped when:
+    - user ends an instant call
+    - last participant leaves the room
+  - intent is to reduce long idle/blank recording tails on very short calls
+- Fixed actual-call-duration tracking bug:
+  - previous implementation incorrectly tied `actual_started_at` / `actual_ended_at` to the session-page websocket presence, which could produce impossible multi-hour durations
+  - timing is now recorded via explicit endpoints triggered from LiveKit `onConnected` / `onDisconnected`
+  - old sessions may still contain bad duration data; new calls after this fix should be the reliable baseline
+- Refined duration model again to use participant overlap only:
+  - added session fields for overlap tracking:
+    - `actual_duration_seconds`
+    - `student_joined_at`
+    - `mentor_joined_at`
+    - `call_overlap_started_at`
+  - duration now increments only while both mentor and student are connected to the LiveKit call
+  - session hub and recordings page now display this overlap-based duration instead of naive connect-time math
+- Reworked admin session management into a student-grouped moderation workspace:
+  - [admin/sessions/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/sessions/page.tsx) now groups calls by student in a grid layout
+  - added filters for search, student, mentor, status, and call type
+  - each student group includes bulk actions:
+    - hide all recordings from that student
+    - unhide all recordings for that student
+    - delete all recordings for that student
+  - per-session controls remain available for `Open Review`, `Hide/Unhide`, and `Delete Recording`
+- Added backend bulk moderation endpoint in [admin.py](/home/shashank/project/mentorx/services/api/app/routers/admin.py):
+  - `POST /api/admin/students/{student_id}/recordings/moderate?action=hide|unhide|delete`
+  - supports optional mentor/status scoping from the current admin filters
   - Replaced external recording links with embedded in-app HTML5 video players (no-download controls) in:
     - `apps/web/app/dashboard/sessions/[sessionId]/page.tsx`
     - `apps/web/app/dashboard/recordings/page.tsx`

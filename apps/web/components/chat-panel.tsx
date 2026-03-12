@@ -13,6 +13,8 @@ type ChatThread = {
   status: string;
   last_message_preview: string | null;
   last_message_at: string | null;
+  pending_call_session_id?: string | null;
+  pending_call_status?: string | null;
 };
 
 type ChatMessage = {
@@ -26,6 +28,8 @@ type NotificationRow = {
   id: string;
   title: string;
   message: string;
+  event_type?: string | null;
+  link_path?: string | null;
   created_at: string;
 };
 
@@ -46,6 +50,17 @@ type Props = {
 function extractSessionId(message: string): string | null {
   const match = message.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   return match?.[0] ?? null;
+}
+
+function extractSessionIdFromLinkPath(linkPath?: string | null): string | null {
+  if (!linkPath) return null;
+  const match = linkPath.match(/\/dashboard\/sessions\/([0-9a-f-]+)/i);
+  return match?.[1] ?? null;
+}
+
+function extractSessionIdFromCallEvent(message: string): string | null {
+  const match = message.match(/Session ID:\s*([0-9a-f-]+)/i);
+  return match?.[1] ?? null;
 }
 
 function formatStatus(status: string): string {
@@ -84,8 +99,8 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
   const resolvedRequestSubject = useMemo(() => {
     if (defaultSubject) return defaultSubject;
     if (subjectOptions.length === 1) return subjectOptions[0];
-    return "";
-  }, [defaultSubject, subjectOptions]);
+    return requestSubject;
+  }, [defaultSubject, requestSubject, subjectOptions]);
 
   async function loadThreads(preserveSelection = true) {
     const resp = await authedFetch("/chats/threads");
@@ -94,12 +109,18 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
     setThreads(rows);
     if (!preserveSelection) {
       setSelectedThreadId(rows[0]?.id ?? "");
+      if (!rows[0]?.id) setMessages([]);
       return;
     }
-    if (!selectedThreadId && rows[0]?.id) setSelectedThreadId(rows[0].id);
+    if (!selectedThreadId && rows[0]?.id) {
+      setSelectedThreadId(rows[0].id);
+      return;
+    }
     if (selectedThreadId && !rows.some((item) => item.id === selectedThreadId)) {
       setSelectedThreadId(rows[0]?.id ?? "");
+      if (!rows[0]?.id) setMessages([]);
     }
+    if (rows.length === 0) setMessages([]);
   }
 
   async function loadMessages(threadId: string) {
@@ -141,7 +162,7 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
     setSelectedThreadId(String(data.id));
   }
 
-  async function updateThread(action: "accept" | "reject" | "close") {
+  async function updateThread(action: "accept" | "reject") {
     if (!selectedThread) return;
     const resp = await authedFetch(`/chats/threads/${selectedThread.id}/action`, {
       method: "POST",
@@ -153,7 +174,7 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
       setMessage(data?.detail ?? "Unable to update chat");
       return;
     }
-    setMessage(action === "accept" ? "Chat accepted" : action === "reject" ? "Chat rejected" : "Chat closed");
+    setMessage(action === "accept" ? "Chat accepted" : "Chat rejected");
     await loadThreads();
   }
 
@@ -183,6 +204,18 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
       return;
     }
     window.location.href = `/dashboard/sessions/${String(data.id)}`;
+  }
+
+  async function approvePendingCall() {
+    if (!selectedThread?.pending_call_session_id) return;
+    const resp = await authedFetch(`/sessions/${selectedThread.pending_call_session_id}/approve`, { method: "POST" });
+    const data = await parseJsonSafe(resp);
+    if (!resp.ok) {
+      setMessage(data?.detail ?? "Unable to approve call");
+      return;
+    }
+    await loadThreads();
+    window.location.href = `/dashboard/sessions/${selectedThread.pending_call_session_id}`;
   }
 
   useEffect(() => {
@@ -230,7 +263,7 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
       if (Notification.permission === "granted") {
         const notification = new Notification(item.title, { body: item.message });
         notification.onclick = () => {
-          const sessionId = extractSessionId(item.message);
+          const sessionId = extractSessionIdFromLinkPath(item.link_path) ?? extractSessionId(item.message);
           if (sessionId) window.location.href = `/dashboard/sessions/${sessionId}`;
         };
       }
@@ -272,9 +305,19 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
               </option>
             ))}
           </select>
-          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-            Category: <span className="font-semibold text-slate-900">{resolvedRequestSubject || "Pick from Mentor Directory"}</span>
-          </div>
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={requestSubject}
+            onChange={(e) => setRequestSubject(e.target.value)}
+            disabled={Boolean(defaultSubject) && subjectOptions.length <= 1}
+          >
+            <option value="">Select category</option>
+            {subjectOptions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
           <button
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             onClick={() => void createThread()}
@@ -302,7 +345,7 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
       {callNotifications.length > 0 && (
         <div className="mt-4 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
           {callNotifications.slice(0, 3).map((item) => {
-            const sessionId = extractSessionId(item.message);
+            const sessionId = extractSessionIdFromLinkPath(item.link_path) ?? extractSessionId(item.message);
             return (
               <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
                 <div>
@@ -370,12 +413,30 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                   )}
                   {selectedThread.status === "active" && (
                     <>
-                      <button className="rounded-md bg-accent px-3 py-1.5 text-sm text-white" onClick={() => void startInstantCall()}>
-                        Instant Call
-                      </button>
-                      <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => void updateThread("close")}>
-                        Close
-                      </button>
+                      {!selectedThread.pending_call_session_id && role === "student" && (
+                        <button className="rounded-md bg-accent px-3 py-1.5 text-sm text-white" onClick={() => void startInstantCall()}>
+                          Request Call
+                        </button>
+                      )}
+                      {role === "mentor" && selectedThread.pending_call_status === "pending_mentor_approval" && selectedThread.pending_call_session_id && (
+                        <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white" onClick={() => void approvePendingCall()}>
+                          Approve & Join
+                        </button>
+                      )}
+                      {selectedThread.pending_call_session_id &&
+                        ["confirmed", "ready_to_join", "in_progress"].includes(selectedThread.pending_call_status ?? "") && (
+                          <Link
+                            href={`/dashboard/sessions/${selectedThread.pending_call_session_id}`}
+                            className="rounded-md bg-accent px-3 py-1.5 text-sm text-white"
+                          >
+                            Join Call
+                          </Link>
+                        )}
+                      {role === "student" && selectedThread.pending_call_status === "pending_mentor_approval" && (
+                        <span className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-800">
+                          Call Requested
+                        </span>
+                      )}
                     </>
                   )}
                 </div>
@@ -383,6 +444,8 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
 
               <div className="mt-3 max-h-96 space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 text-sm">
                 {messages.map((item) => {
+                  const isCallEvent = /^Requested an instant call\.|^Started an instant call\.|^Call ended\./.test(item.message);
+                  const callEventSessionId = isCallEvent ? extractSessionIdFromCallEvent(item.message) : null;
                   const isMine =
                     (role === "student" && item.sender_id === selectedThread.student_id) ||
                     (role === "mentor" && item.sender_id === selectedThread.mentor_id);
@@ -391,6 +454,32 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                     : item.sender_id === selectedThread.student_id
                       ? "Student"
                       : "Mentor";
+
+                  if (isCallEvent) {
+                    return (
+                      <div key={item.id} className="flex justify-center">
+                        <div className="max-w-[90%] rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-center text-xs font-medium text-sky-800 shadow-sm">
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            <i className="fa-solid fa-phone text-[11px]" />
+                            <span>{item.message}</span>
+                            <span className="text-sky-600">
+                              {new Date(item.created_at).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })}
+                            </span>
+                          </div>
+                          {callEventSessionId && (
+                            <div className="mt-2">
+                              <Link
+                                href={`/dashboard/sessions/${callEventSessionId}`}
+                                className="inline-flex rounded-full border border-sky-300 bg-white px-3 py-1 text-[11px] font-semibold text-sky-700"
+                              >
+                                View Call Details
+                              </Link>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
 
                   return (
                     <div key={item.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>

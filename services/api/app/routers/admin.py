@@ -1,3 +1,7 @@
+import json
+import shutil
+import subprocess
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -10,15 +14,20 @@ from ..models.manager_scope import ManagerScope
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
 from ..models.payment import Payment, PaymentStatus
 from ..models.profile import Profile
+from ..models.resource import Resource
 from ..models.session import Session as MentorshipSession
 from ..models.session_recording import SessionRecording
 from ..models.session_recording_visibility import SessionRecordingVisibility
 from ..models.user import User
 from ..schemas.admin import DisputeUpdate, ManagerScopeUpdate, MentorVerificationUpdate
+from ..services.livekit_service import LiveKitService
 from ..services.recording_service import RecordingService
+from ..services.storage_service import StorageService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 recording_service = RecordingService()
+storage_service = StorageService()
+livekit_service = LiveKitService()
 
 
 def _require_admin(user: User) -> None:
@@ -58,8 +67,45 @@ def _session_payload(row: MentorshipSession, user_rows: dict[str, User], profile
         "status": row.status,
         "starts_at": row.starts_at,
         "duration_minutes": row.duration_minutes,
+        "actual_duration_seconds": row.actual_duration_seconds,
         "is_instant": row.is_instant,
     }
+
+
+def _docker_container_snapshot() -> dict:
+    docker_path = shutil.which("docker")
+    if not docker_path:
+        return {"available": False, "status": "unavailable", "reason": "docker_cli_not_found", "containers": []}
+
+    try:
+        result = subprocess.run(
+            [docker_path, "ps", "-a", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except Exception as exc:  # pragma: no cover - environment dependent
+        return {"available": False, "status": "unavailable", "reason": str(exc), "containers": []}
+
+    containers: list[dict] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        containers.append(
+            {
+                "name": parsed.get("Names"),
+                "image": parsed.get("Image"),
+                "state": parsed.get("State"),
+                "status": parsed.get("Status"),
+            }
+        )
+    return {"available": True, "status": "healthy", "containers": containers}
 
 
 @router.get("/overview")
@@ -81,6 +127,76 @@ def overview(db: Session = Depends(get_db), user: User = Depends(get_current_use
         "total_sessions": int(total_sessions),
         "pending_mentor_verifications": int(pending_mentor_verifications),
         "paid_payments": int(paid_payments),
+    }
+
+
+@router.get("/system-stats")
+def system_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_admin(user)
+
+    user_counts = {
+        str(role): int(count)
+        for role, count in db.query(User.role, func.count(User.id)).group_by(User.role).all()
+    }
+    session_counts = {
+        str(status_value): int(count)
+        for status_value, count in db.query(MentorshipSession.status, func.count(MentorshipSession.id)).group_by(MentorshipSession.status).all()
+    }
+    recording_counts = {
+        str(status_value): int(count)
+        for status_value, count in db.query(SessionRecording.status, func.count(SessionRecording.id)).group_by(SessionRecording.status).all()
+    }
+    active_resources = (
+        db.query(func.count(Resource.id))
+        .filter(Resource.is_deleted.is_(False), Resource.is_active.is_(True))
+        .scalar()
+        or 0
+    )
+    total_resources = db.query(func.count(Resource.id)).filter(Resource.is_deleted.is_(False)).scalar() or 0
+    recording_rows = db.query(SessionRecording).filter(SessionRecording.deleted_at.is_(None)).all()
+    recording_size_bytes = 0
+    for row in recording_rows:
+        if not row.object_key:
+            continue
+        recording_size_bytes += int(recording_service.storage.object_size(row.object_key) or 0)
+
+    try:
+        livekit = livekit_service.healthcheck()
+    except Exception as exc:  # pragma: no cover - service/network dependent
+        livekit = {"ok": False, "status": "unreachable", "error": str(exc)}
+
+    try:
+        bucket = storage_service.healthcheck()
+    except Exception as exc:  # pragma: no cover - provider/network dependent
+        bucket = {"ok": False, "status": "unreachable", "error": str(exc)}
+
+    return {
+        "api": {
+            "ok": True,
+            "status": "healthy",
+        },
+        "livekit": livekit,
+        "bucket": bucket,
+        "containers": _docker_container_snapshot(),
+        "usage": {
+            "users": {
+                "total": int(sum(user_counts.values())),
+                "by_role": user_counts,
+            },
+            "sessions": {
+                "total": int(sum(session_counts.values())),
+                "by_status": session_counts,
+            },
+            "recordings": {
+                "total": int(sum(recording_counts.values())),
+                "by_status": recording_counts,
+                "stored_bytes": int(recording_size_bytes or 0),
+            },
+            "resources": {
+                "total": int(total_resources),
+                "active": int(active_resources),
+            },
+        },
     }
 
 
@@ -293,6 +409,7 @@ def list_recordings_paginated(
                 "attempt_number": row.attempt_number,
                 "status": row.status,
                 "playback_url": recording_service.storage.presign_get(row.object_key) if row.object_key else None,
+                "size_bytes": recording_service.storage.object_size(row.object_key) if row.object_key else None,
                 "created_at": row.created_at,
                 "starts_at": session.starts_at,
                 "title": session.title,
@@ -309,6 +426,46 @@ def list_recordings_paginated(
     total = len(items)
     start = (page - 1) * page_size
     return {"items": items[start:start + page_size], "page": page, "page_size": page_size, "total": total}
+
+
+@router.post("/students/{student_id}/recordings/moderate")
+def moderate_student_recordings(
+    student_id: str,
+    action: str = Query(..., pattern="^(hide|unhide|delete)$"),
+    mentor_id: str | None = Query(default=None),
+    status_value: str | None = Query(default=None, alias="status"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _require_admin_or_manager(user)
+    sessions = db.query(MentorshipSession).filter(MentorshipSession.student_id == student_id).all()
+    if mentor_id:
+        sessions = [row for row in sessions if row.mentor_id == mentor_id]
+    if status_value:
+        sessions = [row for row in sessions if str(row.status) == status_value]
+
+    processed = 0
+    for session in sessions:
+        if action == "delete":
+            latest = recording_service.latest_recording(db, session.id)
+            if not latest:
+                continue
+            recording_service.mark_deleted(db, session.id, deleted_by=user, recording_id=latest.id)
+            processed += 1
+            continue
+
+        policy = db.query(SessionRecordingVisibility).filter(SessionRecordingVisibility.session_id == session.id).first()
+        if not policy:
+            policy = SessionRecordingVisibility(session_id=session.id, visible_to_student=True)
+            db.add(policy)
+            db.flush()
+        policy.visible_to_student = action != "hide"
+        processed += 1
+
+    if action != "delete":
+        db.commit()
+
+    return {"message": f"{action} applied", "processed_sessions": processed}
 
 
 @router.get("/manager-scopes")

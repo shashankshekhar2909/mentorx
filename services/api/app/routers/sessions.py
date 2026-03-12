@@ -12,6 +12,8 @@ from ..core.rbac import Role
 from ..models.dispute import Dispute
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
 from ..models.profile import Profile
+from ..models.chat_message import ChatMessage
+from ..models.chat_thread import ChatThread
 from ..models.session import Session as MentorshipSession, SessionStatus
 from ..models.session_message import SessionMessage
 from ..models.session_recording import RecordingStatus, SessionRecording
@@ -97,6 +99,29 @@ def _can_access_session(session: MentorshipSession, user: User) -> bool:
     return user.role in (Role.admin, Role.manager) or session.student_id == user.id or session.mentor_id == user.id
 
 
+def _mark_call_joined(session_id: str) -> None:
+    return
+
+
+def _stop_active_recording(session_id: str) -> None:
+    db = SessionLocal()
+    try:
+        row = recording_service.active_recording(db, session_id)
+        if not row or not row.egress_id:
+            return
+        try:
+            livekit_service.stop_egress(egress_id=row.egress_id)
+        except Exception:
+            # Egress might already be stopping/stopped; sync path will reconcile final state.
+            return
+    finally:
+        db.close()
+
+
+def _mark_call_left(session_id: str) -> None:
+    return
+
+
 def _build_session_title(raw_title: str | None, starts_at: datetime) -> str:
     title = (raw_title or "").strip()
     if title and title.lower() not in {"mentorship session", "student call request"}:
@@ -126,6 +151,10 @@ def _can_view_recording(session: MentorshipSession, user: User, policy: SessionR
 
 def _sync_recording_state(db: Session, session: MentorshipSession) -> SessionRecording | None:
     row = recording_service.latest_recording(db, session.id)
+    return _sync_recording_row(db, session, row)
+
+
+def _sync_recording_row(db: Session, session: MentorshipSession, row: SessionRecording | None) -> SessionRecording | None:
     if not row or not row.egress_id or row.deleted_at:
         return row
 
@@ -148,7 +177,10 @@ def _sync_recording_state(db: Session, session: MentorshipSession) -> SessionRec
         object_key = None
         if file_results:
             object_key = getattr(file_results[0], "filename", None) or getattr(file_results[0], "filepath", None)
-        object_key = object_key or row.object_key or f"recordings/{session.id}/meeting.mp4"
+        object_key = object_key or row.object_key or livekit_service.recording_object_key(
+            session_id=session.id,
+            attempt_number=row.attempt_number,
+        )
         row = recording_service.mark_uploaded(db, session.id, object_key, recording_id=row.id)
         if session.status == SessionStatus.in_progress:
             session.status = SessionStatus.completed
@@ -185,6 +217,18 @@ def _display_label(db: Session, user_id: str, fallback_email: str | None = None)
     if user:
         return user.email
     return fallback_email or user_id
+
+
+def _format_call_duration(session: MentorshipSession) -> str | None:
+    if not session.actual_started_at or not session.actual_ended_at:
+        return None
+    total_seconds = max(1, int((session.actual_ended_at - session.actual_started_at).total_seconds()))
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes <= 0:
+        return f"{seconds}s"
+    if seconds == 0:
+        return f"{minutes}m"
+    return f"{minutes}m {seconds}s"
 
 
 @router.get("/{session_id}", response_model=SessionOut)
@@ -270,7 +314,9 @@ def create_session_request(payload: BookingCreate, db: Session = Depends(get_db)
         db,
         user_id=row.mentor_id,
         title="New session request",
-        message=f"Session request {row.id} is awaiting your approval.",
+        message="A new class request is awaiting your approval.",
+        event_type="session_request",
+        link_path=f"/dashboard/sessions/{row.id}",
     )
     return row
 
@@ -330,7 +376,9 @@ def approve_session(session_id: str, db: Session = Depends(get_db), user: User =
             db,
             user_id=row.student_id,
             title="Session approved",
-            message=f"Mentor approved session {row.id}. You can join at scheduled time.",
+            message="Your class request was approved. You can join at the scheduled time.",
+            event_type="session_approved",
+            link_path=f"/dashboard/sessions/{row.id}",
         )
         return {"message": "Session approved by mentor"}
 
@@ -343,7 +391,9 @@ def approve_session(session_id: str, db: Session = Depends(get_db), user: User =
             db,
             user_id=row.student_id,
             title="Session approved",
-            message=f"Session {row.id} approved by manager. You can join at scheduled time.",
+            message="Your class request was approved. You can join at the scheduled time.",
+            event_type="session_approved",
+            link_path=f"/dashboard/sessions/{row.id}",
         )
         return {"message": "Session approved by manager"}
 
@@ -359,7 +409,9 @@ def approve_session(session_id: str, db: Session = Depends(get_db), user: User =
                 db,
                 user_id=row.student_id,
                 title="Session approved",
-                message=f"Session {row.id} approved by admin. You can join at scheduled time.",
+                message="Your class request was approved. You can join at the scheduled time.",
+                event_type="session_approved",
+                link_path=f"/dashboard/sessions/{row.id}",
             )
             return {"message": "Session approved by admin"}
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not in an approvable stage")
@@ -412,6 +464,94 @@ def update_session_status(
     row.status = status_value
     db.commit()
     return {"message": "Session status updated"}
+
+
+@router.post("/{session_id}/end-call")
+def end_call(session_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    row = db.query(MentorshipSession).filter(MentorshipSession.id == session_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if not _can_access_session(row, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+
+    now = datetime.now(timezone.utc)
+    _stop_active_recording(session_id)
+    if row.call_overlap_started_at:
+        row.actual_duration_seconds = int(row.actual_duration_seconds or 0) + max(
+            1,
+            int((now - row.call_overlap_started_at).total_seconds()),
+        )
+        row.call_overlap_started_at = None
+    row.actual_ended_at = now
+    row.student_joined_at = None
+    row.mentor_joined_at = None
+    if row.is_instant:
+        row.status = SessionStatus.completed
+    elif row.status == SessionStatus.in_progress:
+        row.status = SessionStatus.completed
+    if row.source_chat_thread_id:
+        thread = db.query(ChatThread).filter(ChatThread.id == row.source_chat_thread_id).first()
+        if thread:
+            duration_label = _format_call_duration(row)
+            message = f"Call ended. Session ID: {row.id}"
+            if duration_label:
+                message = f"{message} Duration: {duration_label}"
+            db.add(ChatMessage(thread_id=thread.id, sender_id=user.id, message=message))
+            thread.last_message_preview = message[:240]
+            thread.last_message_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(row)
+    return {"message": "Call ended", "status": row.status}
+
+
+@router.post("/{session_id}/call-joined")
+def mark_call_joined(session_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    row = db.query(MentorshipSession).filter(MentorshipSession.id == session_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if not _can_access_session(row, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+    now = datetime.now(timezone.utc)
+    if user.id == row.student_id:
+        row.student_joined_at = now
+    if user.id == row.mentor_id:
+        row.mentor_joined_at = now
+    if row.student_joined_at and row.mentor_joined_at and row.call_overlap_started_at is None:
+        row.call_overlap_started_at = now
+        row.actual_started_at = row.actual_started_at or now
+        row.actual_ended_at = None
+    if row.status in (SessionStatus.confirmed, SessionStatus.ready_to_join):
+        row.status = SessionStatus.in_progress
+    db.commit()
+    return {"message": "Call join recorded"}
+
+
+@router.post("/{session_id}/call-left")
+def mark_call_left(session_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    row = db.query(MentorshipSession).filter(MentorshipSession.id == session_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    if not _can_access_session(row, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed")
+    now = datetime.now(timezone.utc)
+    had_overlap = row.call_overlap_started_at is not None
+    if had_overlap and row.call_overlap_started_at:
+        row.actual_duration_seconds = int(row.actual_duration_seconds or 0) + max(
+            1,
+            int((now - row.call_overlap_started_at).total_seconds()),
+        )
+        row.call_overlap_started_at = None
+        row.actual_ended_at = now
+    if user.id == row.student_id:
+        row.student_joined_at = None
+    if user.id == row.mentor_id:
+        row.mentor_joined_at = None
+    if not row.student_joined_at and not row.mentor_joined_at:
+        _stop_active_recording(session_id)
+        if row.status == SessionStatus.in_progress:
+            row.status = SessionStatus.completed
+    db.commit()
+    return {"message": "Call leave recorded"}
 
 
 @router.get("/{session_id}/messages", response_model=list[ChatMessageOut])
@@ -546,9 +686,14 @@ def start_recording(payload: RecordingStartRequest, db: Session = Depends(get_db
             db.commit()
             db.refresh(session)
         return existing
+    attempt_number = recording_service.next_attempt_number(db, session.id)
     try:
         livekit_service.ensure_room(room_name=room_name, metadata=session.id)
-        egress_id, object_key = livekit_service.start_room_recording(room_name=room_name, session_id=session.id)
+        egress_id, object_key = livekit_service.start_room_recording(
+            room_name=room_name,
+            session_id=session.id,
+            attempt_number=attempt_number,
+        )
     except Exception as exc:
         row = recording_service.mark_failed(db, payload.session_id, f"Unable to start automatic recording: {exc}")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=row.error_message)
@@ -574,14 +719,18 @@ def complete_recording(payload: RecordingCompleteRequest, db: Session = Depends(
         db,
         user_id=session.student_id,
         title="Recording ready",
-        message=f"Session recording for {session.id} is now available.",
+        message="Your class recording is now ready to watch.",
+        event_type="recording_ready",
+        link_path=f"/dashboard/sessions/{session.id}",
     )
     if session.mentor_id != session.student_id:
         notification_service.create(
             db,
             user_id=session.mentor_id,
             title="Recording ready",
-            message=f"Session recording for {session.id} is now available.",
+            message="The class recording is now ready to review.",
+            event_type="recording_ready",
+            link_path=f"/dashboard/sessions/{session.id}",
         )
     return row
 
@@ -604,6 +753,7 @@ def get_recording(session_id: str, db: Session = Depends(get_db), user: User = D
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Recording is not visible for your role")
     if row.object_key:
         row.playback_url = recording_service.storage.presign_get(row.object_key)
+        row.size_bytes = recording_service.storage.object_size(row.object_key)
     return row
 
 
@@ -620,10 +770,14 @@ def list_recordings(session_id: str, db: Session = Depends(get_db), user: User =
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Recording is not visible for your role")
 
     rows = recording_service.list_recordings(db, session_id)
+    synced_rows: list[SessionRecording] = []
     for row in rows:
+        row = _sync_recording_row(db, session, row)
         if row.object_key:
             row.playback_url = recording_service.storage.presign_get(row.object_key)
-    return rows
+            row.size_bytes = recording_service.storage.object_size(row.object_key)
+        synced_rows.append(row)
+    return synced_rows
 
 
 @router.delete("/{session_id}/recording", response_model=RecordingOut)

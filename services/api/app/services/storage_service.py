@@ -15,7 +15,7 @@ class StorageService:
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
             region_name=settings.s3_region,
-            config=Config(signature_version="s3v4"),
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path" if settings.s3_force_path_style else "auto"}),
         )
         presign_endpoint = settings.s3_public_endpoint or settings.s3_endpoint
         self.presign_client = boto3.client(
@@ -24,7 +24,7 @@ class StorageService:
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
             region_name=settings.s3_region,
-            config=Config(signature_version="s3v4"),
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path" if settings.s3_force_path_style else "auto"}),
         )
 
     def presign_put(self, object_key: str, content_type: str, expires_in: int = 900) -> str:
@@ -63,3 +63,35 @@ class StorageService:
 
     def delete_object(self, object_key: str) -> None:
         self.client.delete_object(Bucket=settings.s3_bucket, Key=object_key)
+
+    def object_size(self, object_key: str) -> int | None:
+        try:
+            response = self.client.head_object(Bucket=settings.s3_bucket, Key=object_key)
+        except ClientError:
+            return None
+        size = response.get("ContentLength")
+        return int(size) if isinstance(size, (int, float)) else None
+
+    def healthcheck(self) -> dict:
+        try:
+            self.client.head_bucket(Bucket=settings.s3_bucket)
+            return {
+                "ok": True,
+                "status": "healthy",
+                "bucket": settings.s3_bucket,
+                "endpoint": settings.s3_endpoint,
+                "public_endpoint": settings.s3_public_endpoint or settings.s3_endpoint,
+                "region": settings.s3_region,
+                "force_path_style": settings.s3_force_path_style,
+            }
+        except Exception as exc:  # pragma: no cover - provider/network dependent
+            return {
+                "ok": False,
+                "status": "unreachable",
+                "bucket": settings.s3_bucket,
+                "endpoint": settings.s3_endpoint,
+                "public_endpoint": settings.s3_public_endpoint or settings.s3_endpoint,
+                "region": settings.s3_region,
+                "force_path_style": settings.s3_force_path_style,
+                "error": str(exc),
+            }

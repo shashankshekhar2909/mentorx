@@ -21,6 +21,7 @@ class RecordingOut(BaseModel):
     egress_id: str | None
     object_key: str | None
     playback_url: str | None
+    size_bytes: int | None = None
     status: RecordingStatus
     error_message: str | None
     created_at: datetime

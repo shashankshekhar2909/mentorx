@@ -22,6 +22,12 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     except ValueError:
         role = Role.student
 
+    if role not in (Role.student, Role.mentor):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student and mentor accounts can be created from public registration",
+        )
+
     user = User(email=payload.email, hashed_password=hash_password(payload.password), role=role)
     db.add(user)
     db.commit()

@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from ..models.chat_thread import ChatThreadStatus
+from ..models.session import SessionStatus
 
 
 class ChatThreadCreate(BaseModel):
@@ -22,6 +23,8 @@ class ChatThreadOut(BaseModel):
     last_message_preview: str | None
     last_message_at: datetime | None
     accepted_at: datetime | None
+    pending_call_session_id: str | None = None
+    pending_call_status: SessionStatus | None = None
     created_at: datetime
     updated_at: datetime
 

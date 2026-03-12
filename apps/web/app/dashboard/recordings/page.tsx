@@ -15,6 +15,10 @@ type SessionRow = {
   status: string;
   starts_at: string;
   duration_minutes: number;
+  actual_started_at?: string | null;
+  actual_ended_at?: string | null;
+  actual_duration_seconds?: number;
+  call_overlap_started_at?: string | null;
   mentor_id: string;
   student_id: string;
 };
@@ -30,6 +34,11 @@ type RecordingRow = {
   playback_url: string | null;
   created_at?: string;
   error_message?: string | null;
+  actual_duration_label?: string | null;
+};
+
+type RecordingRowView = RecordingRow & {
+  superseded: boolean;
 };
 
 function statusLabel(status: string): string {
@@ -38,6 +47,26 @@ function statusLabel(status: string): string {
   if (status === "uploaded") return "Ready to Watch";
   if (status === "failed") return "Recording Failed";
   return status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function formatDurationFromSeconds(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes} min`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function actualDurationLabel(session: SessionRow): string | null {
+  let totalSeconds = Number(session.actual_duration_seconds ?? 0);
+  if (session.call_overlap_started_at) {
+    const overlapStart = new Date(session.call_overlap_started_at).getTime();
+    if (Number.isFinite(overlapStart)) {
+      totalSeconds += Math.max(1, Math.round((Date.now() - overlapStart) / 1000));
+    }
+  }
+  if (totalSeconds <= 0) return null;
+  return formatDurationFromSeconds(totalSeconds);
 }
 
 export default function RecordingsPage() {
@@ -53,6 +82,21 @@ export default function RecordingsPage() {
     return [start.toISOString(), end.toISOString()];
   }, []);
 
+  const visibleRows = useMemo<RecordingRowView[]>(() => {
+    const latestByObjectKey = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.playback_url) continue;
+      const current = latestByObjectKey.get(row.playback_url) ?? 0;
+      latestByObjectKey.set(row.playback_url, Math.max(current, row.attempt_number ?? 0));
+    }
+    return rows.map((row) => ({
+      ...row,
+      superseded:
+        Boolean(row.playback_url) &&
+        (latestByObjectKey.get(row.playback_url as string) ?? row.attempt_number) > row.attempt_number,
+    }));
+  }, [rows]);
+
   async function refresh() {
     setLoading(true);
     setMessage("");
@@ -66,6 +110,7 @@ export default function RecordingsPage() {
       const recordings = (
         await Promise.all(
           sessions.map(async (item) => {
+            const durationLabel = actualDurationLabel(item);
             const recResp = await authedFetch(`/sessions/${item.id}/recordings`);
             if (recResp.status === 404 && ["ready_to_join", "in_progress", "completed"].includes(item.status)) {
               return [
@@ -77,6 +122,7 @@ export default function RecordingsPage() {
                   starts_at: item.starts_at,
                   status: item.status === "completed" ? "queued" : "recording",
                   duration_minutes: item.duration_minutes ?? 60,
+                  actual_duration_label: durationLabel,
                   playback_url: null,
                   created_at: item.starts_at,
                   error_message: null,
@@ -96,6 +142,7 @@ export default function RecordingsPage() {
                   starts_at: item.starts_at,
                   status: item.status === "completed" ? "queued" : "recording",
                   duration_minutes: item.duration_minutes ?? 60,
+                  actual_duration_label: durationLabel,
                   playback_url: null,
                   created_at: item.starts_at,
                   error_message: null,
@@ -112,6 +159,7 @@ export default function RecordingsPage() {
                   starts_at: item.starts_at,
                   status: String(attempt.status ?? "uploaded"),
                   duration_minutes: item.duration_minutes ?? 60,
+                  actual_duration_label: durationLabel,
                   playback_url: attempt?.playback_url ? String(attempt.playback_url) : null,
                   created_at: attempt?.created_at ? String(attempt.created_at) : item.starts_at,
                   error_message: attempt?.error_message ? String(attempt.error_message) : null,
@@ -165,7 +213,7 @@ export default function RecordingsPage() {
         {message && <p className="mt-3 text-sm text-slate-600">{message}</p>}
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {rows.map((item) => (
+          {visibleRows.map((item) => (
             <article key={item.id} className="rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -177,10 +225,10 @@ export default function RecordingsPage() {
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
-                <span>{item.duration_minutes} min</span>
+                <span>{item.actual_duration_label ?? `${item.duration_minutes} min planned`}</span>
                 <span>Attempt {item.attempt_number || 1}</span>
               </div>
-              {item.status === "uploaded" && item.playback_url ? (
+              {item.status === "uploaded" && item.playback_url && !item.superseded ? (
                 <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-black">
                   <video
                     src={item.playback_url}
@@ -194,11 +242,25 @@ export default function RecordingsPage() {
               ) : (
                 <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
                   <div className="flex items-center gap-2 font-semibold text-slate-800">
-                    <i className={`fa-solid ${item.status === "failed" ? "fa-triangle-exclamation text-rose-600" : "fa-gear fa-spin text-accent"}`} />
-                    {item.status === "failed" ? "Recording needs attention" : "Recording is being prepared"}
+                    <i
+                      className={`fa-solid ${
+                        item.superseded
+                          ? "fa-copy text-amber-600"
+                          : item.status === "failed"
+                            ? "fa-triangle-exclamation text-rose-600"
+                            : "fa-gear fa-spin text-accent"
+                      }`}
+                    />
+                    {item.superseded
+                      ? "Playback moved to latest session"
+                      : item.status === "failed"
+                        ? "Recording needs attention"
+                        : "Recording is being prepared"}
                   </div>
                   <p className="mt-2">
-                    {item.status === "failed"
+                    {item.superseded
+                      ? "This legacy entry reused the same recording file as a later session, so playback is only available on the latest session."
+                      : item.status === "failed"
                       ? item.error_message || "The recording process failed for this call."
                       : "The meeting has ended and the latest recording is still being processed. It will appear here automatically for both student and mentor."}
                   </p>
@@ -223,7 +285,7 @@ export default function RecordingsPage() {
               </div>
             </article>
           ))}
-          {!loading && rows.length === 0 && <p className="text-sm text-slate-500">No recordings available yet.</p>}
+          {!loading && visibleRows.length === 0 && <p className="text-sm text-slate-500">No recordings available yet.</p>}
           {loading && <p className="text-sm text-slate-500">Loading recordings...</p>}
         </div>
       </article>

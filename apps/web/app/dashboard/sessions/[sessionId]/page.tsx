@@ -31,6 +31,10 @@ type SessionInfo = {
   notes: string | null;
   starts_at: string;
   duration_minutes: number;
+  actual_started_at?: string | null;
+  actual_ended_at?: string | null;
+  actual_duration_seconds?: number;
+  call_overlap_started_at?: string | null;
   status: string;
 };
 
@@ -46,9 +50,14 @@ type Recording = {
   attempt_number: number;
   object_key: string | null;
   playback_url: string | null;
+  size_bytes?: number | null;
   status: string;
   error_message: string | null;
   created_at?: string;
+};
+
+type RecordingView = Recording & {
+  superseded: boolean;
 };
 
 type RecordingVisibility = {
@@ -82,7 +91,33 @@ type SignalPayload = {
   participants?: PresenceRow[];
 };
 
-function MeetingStage() {
+function formatBytes(value?: number | null): string {
+  if (!value || value <= 0) return "Size pending";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size >= 10 || unit === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unit]}`;
+}
+
+function formatDurationFromSeconds(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function MeetingStage({
+  isFullscreen,
+  onToggleFullscreen,
+}: {
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
+}) {
   const cameraTracks = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
     onlySubscribed: false,
   });
@@ -95,6 +130,14 @@ function MeetingStage() {
   return (
     <div className="flex h-[720px] flex-col bg-slate-950">
       <div className="relative flex-1 overflow-hidden">
+        <button
+          type="button"
+          onClick={onToggleFullscreen}
+          className="absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm"
+        >
+          <i className={`fa-solid ${isFullscreen ? "fa-compress" : "fa-expand"}`} />
+          {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+        </button>
         {featuredTrack ? (
           <ParticipantTile
             trackRef={featuredTrack}
@@ -166,6 +209,8 @@ export default function SessionHubPage() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const recordingStartedRef = useRef(false);
+  const meetingStageRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const wsUrl = useMemo(() => {
     if (!token || !sessionId) return null;
@@ -173,6 +218,38 @@ export default function SessionHubPage() {
   }, [token, sessionId]);
 
   const canManageVisibility = role === "mentor" || role === "manager" || role === "admin";
+  const canSeeRecordingSize = role === "manager" || role === "admin";
+  const hasPendingRecording = recordingAttempts.some((attempt) => ["queued", "recording"].includes(attempt.status));
+  const joinWithVideo = role === "mentor";
+
+  const recordingAttemptViews = useMemo<RecordingView[]>(() => {
+    const latestByObjectKey = new Map<string, number>();
+    for (const attempt of recordingAttempts) {
+      if (!attempt.object_key) continue;
+      const current = latestByObjectKey.get(attempt.object_key) ?? 0;
+      latestByObjectKey.set(attempt.object_key, Math.max(current, attempt.attempt_number ?? 0));
+    }
+    return recordingAttempts.map((attempt) => ({
+      ...attempt,
+      superseded:
+        Boolean(attempt.object_key) &&
+        (latestByObjectKey.get(attempt.object_key as string) ?? attempt.attempt_number) > attempt.attempt_number,
+    }));
+  }, [recordingAttempts]);
+
+  useEffect(() => {
+    if (recordingAttemptViews.length === 0) {
+      setRecording(null);
+      return;
+    }
+    setRecording((current) => {
+      if (current) {
+        const existing = recordingAttemptViews.find((attempt) => attempt.id === current.id);
+        if (existing) return existing;
+      }
+      return recordingAttemptViews[0];
+    });
+  }, [recordingAttemptViews]);
 
   async function loadRecording() {
     const resp = await authedFetch(`/sessions/${sessionId}/recordings`);
@@ -304,6 +381,15 @@ export default function SessionHubPage() {
     }
   }
 
+  async function leaveMeeting() {
+    if (sessionInfo?.is_instant) {
+      await authedFetch(`/sessions/${sessionId}/end-call`, { method: "POST" });
+      setSessionInfo((current) => (current ? { ...current, status: "completed", actual_ended_at: new Date().toISOString() } : current));
+    }
+    setConnectLiveKit(false);
+    setIsConnected(false);
+  }
+
   useEffect(() => {
     void bootstrap();
   }, [sessionId, hasHydrated, authSession?.accessToken]);
@@ -338,13 +424,35 @@ export default function SessionHubPage() {
   }, [wsUrl]);
 
   useEffect(() => {
-    if (!isConnected) return;
-    void ensureRecordingStarted();
+    if (!isConnected && !hasPendingRecording) return;
+    if (isConnected) {
+      void ensureRecordingStarted();
+    }
     const id = window.setInterval(() => {
       void loadRecording();
     }, 10000);
     return () => window.clearInterval(id);
-  }, [isConnected]);
+  }, [hasPendingRecording, isConnected]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === meetingStageRef.current);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  async function toggleFullscreen() {
+    if (typeof document === "undefined") return;
+    const container = meetingStageRef.current;
+    if (!container) return;
+    if (document.fullscreenElement === container) {
+      await document.exitFullscreen();
+      return;
+    }
+    await container.requestFullscreen();
+  }
 
   const recordingEta = useMemo(() => {
     const durationMinutes = sessionInfo?.duration_minutes ?? 60;
@@ -408,6 +516,19 @@ export default function SessionHubPage() {
     };
   }, [isConnected, recording, recordingEta, recordingMessage]);
 
+  const actualCallDuration = useMemo(() => {
+    if (!sessionInfo) return null;
+    let totalSeconds = Number(sessionInfo.actual_duration_seconds ?? 0);
+    if (sessionInfo.call_overlap_started_at) {
+      const overlapStart = new Date(sessionInfo.call_overlap_started_at).getTime();
+      if (Number.isFinite(overlapStart)) {
+        totalSeconds += Math.max(1, Math.round((Date.now() - overlapStart) / 1000));
+      }
+    }
+    if (totalSeconds <= 0) return null;
+    return formatDurationFromSeconds(totalSeconds);
+  }, [sessionInfo]);
+
   return (
     <section className="space-y-4">
       <header className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-teal-50 p-6 shadow-sm">
@@ -448,10 +569,7 @@ export default function SessionHubPage() {
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Session</p>
                 <p className="mt-2 text-lg font-semibold text-slate-950">{sessionInfo.title}</p>
-                <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                  <i className="fa-solid fa-hashtag text-slate-400" />
-                  {sessionInfo.id.slice(0, 8)}
-                </p>
+                <p className="mt-2 text-sm text-slate-600">Live class space for this event.</p>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
@@ -475,6 +593,17 @@ export default function SessionHubPage() {
                       <p className="text-xs text-slate-500">Planned meeting duration</p>
                     </div>
                   </div>
+                  {actualCallDuration && (
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
+                        <i className="fa-solid fa-stopwatch" />
+                      </span>
+                      <div>
+                        <p className="font-semibold text-slate-900">{actualCallDuration}</p>
+                        <p className="text-xs text-slate-500">Actual connected call time</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -533,7 +662,7 @@ export default function SessionHubPage() {
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Live Meeting</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Shared room for student and mentor with automatic cloud recording and retained playback.
+              Mentor joins with camera on by default. Students join audio-first and can enable camera later.
             </p>
           </div>
           {!connectLiveKit ? (
@@ -542,19 +671,16 @@ export default function SessionHubPage() {
               onClick={() => void prepareJoin()}
               disabled={isJoining}
             >
-              <i className={`mr-2 ${isJoining ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-video"}`} />
-              {isJoining ? "Preparing Room" : "Join Meeting"}
+              <i className={`mr-2 ${isJoining ? "fa-solid fa-spinner fa-spin" : "fa-solid fa-phone"}`} />
+              {isJoining ? "Preparing Room" : "Join Call"}
             </button>
           ) : (
             <button
               className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700"
-              onClick={() => {
-                setConnectLiveKit(false);
-                setIsConnected(false);
-              }}
+              onClick={() => void leaveMeeting()}
             >
               <i className="fa-solid fa-phone-slash mr-2" />
-              Leave Meeting
+              {sessionInfo?.is_instant ? "End Call" : "Leave Meeting"}
             </button>
           )}
         </div>
@@ -572,21 +698,23 @@ export default function SessionHubPage() {
 
         <p className="mt-3 text-sm text-slate-600">{recordingStatus.note}</p>
 
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+        <div ref={meetingStageRef} className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
           {joinData && connectLiveKit ? (
             <LiveKitRoom
               token={joinData.token}
               serverUrl={joinData.livekit_url}
               connect={connectLiveKit}
-              video
+              video={joinWithVideo}
               audio
               data-lk-theme="default"
               className="h-[720px]"
               onConnected={() => {
+                void authedFetch(`/sessions/${sessionId}/call-joined`, { method: "POST" }).then(() => bootstrap());
                 setIsConnected(true);
                 setCallError("");
               }}
               onDisconnected={() => {
+                void authedFetch(`/sessions/${sessionId}/call-left`, { method: "POST" }).then(() => bootstrap());
                 setIsConnected(false);
                 setConnectLiveKit(false);
                 void loadRecording();
@@ -595,7 +723,7 @@ export default function SessionHubPage() {
                 setCallError(error.message || "Unable to connect to meeting room.");
               }}
             >
-              <MeetingStage />
+              <MeetingStage isFullscreen={isFullscreen} onToggleFullscreen={() => void toggleFullscreen()} />
               <RoomAudioRenderer />
             </LiveKitRoom>
           ) : (
@@ -606,7 +734,9 @@ export default function SessionHubPage() {
               <div>
                 <p className="text-lg font-semibold">Meeting room is ready</p>
                 <p className="mt-1 text-sm text-slate-400">
-                  Join to start camera, microphone, and automatic session recording.
+                  {joinWithVideo
+                    ? "Join to start the call with your camera and microphone. Screen share can be enabled during the session."
+                    : "Join to start the audio call immediately. Camera can be enabled later from the meeting controls."}
                 </p>
               </div>
             </div>
@@ -623,7 +753,7 @@ export default function SessionHubPage() {
             </button>
           )}
         </div>
-        {recording && recording.playback_url ? (
+        {recording && recording.playback_url && !("superseded" in recording && recording.superseded) ? (
           <div className="mt-3 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${recordingStatus.className}`}>
@@ -636,17 +766,83 @@ export default function SessionHubPage() {
                 </button>
               )}
             </div>
-            <div className="overflow-hidden rounded-lg border border-slate-200 bg-black">
-              <video
-                src={recording.playback_url}
-                controls
-                controlsList="nodownload noplaybackrate"
-                className="h-80 w-full bg-black"
-                preload="metadata"
-                onContextMenu={(e) => e.preventDefault()}
-              />
+            <div className="grid gap-4 xl:grid-cols-[1.5fr_0.85fr]">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm">
+                <video
+                  key={recording.id}
+                  src={recording.playback_url}
+                  controls
+                  controlsList="nodownload noplaybackrate"
+                  className="aspect-video w-full bg-black"
+                  preload="metadata"
+                  onContextMenu={(e) => e.preventDefault()}
+                />
+                <div className="border-t border-slate-200 bg-white px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Session {recording.attempt_number}</p>
+                      <p className="text-xs text-slate-500">
+                        {recording.created_at ? formatIstDateTime(recording.created_at) : "Timestamp unavailable"}
+                      </p>
+                    </div>
+                    {canSeeRecordingSize && (
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                        {formatBytes(recording.size_bytes)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">Recorded Sessions</p>
+                  <p className="text-xs text-slate-500">{recordingAttemptViews.length} total</p>
+                </div>
+                <div className="mt-3 max-h-[440px] space-y-2 overflow-y-auto pr-1">
+                  {recordingAttemptViews.map((attempt) => {
+                    const isSelected = recording.id === attempt.id;
+                    const isPlayable = Boolean(attempt.playback_url) && !attempt.superseded;
+                    return (
+                      <button
+                        key={attempt.id}
+                        type="button"
+                        disabled={!isPlayable}
+                        onClick={() => setRecording(attempt)}
+                        className={`w-full rounded-2xl border px-3 py-3 text-left shadow-sm transition ${
+                          isSelected
+                            ? "border-accent bg-white ring-2 ring-accent/15"
+                            : "border-slate-200 bg-white hover:border-slate-300"
+                        } ${!isPlayable ? "cursor-not-allowed opacity-70" : ""}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Session {attempt.attempt_number}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {attempt.created_at ? formatIstDateTime(attempt.created_at) : "Timestamp unavailable"}
+                            </p>
+                          </div>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                            {attempt.status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          {canSeeRecordingSize && <span>{formatBytes(attempt.size_bytes)}</span>}
+                          {attempt.superseded && <span className="text-amber-700">Playback moved to later session</span>}
+                          {!attempt.playback_url && !attempt.superseded && <span>Processing</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
             <p className="text-xs text-slate-500">Recording is retained for student reference until manager or admin deletes it.</p>
+            {actualCallDuration && (
+              <p className="text-xs text-slate-500">
+                Actual call time was {actualCallDuration}. Recording length can differ slightly because room-composite recording includes startup and teardown time.
+              </p>
+            )}
           </div>
         ) : (
           <div className="mt-3 space-y-3">
@@ -656,42 +852,6 @@ export default function SessionHubPage() {
                 Delete Recording
               </button>
             )}
-          </div>
-        )}
-
-        {recordingAttempts.length > 0 && (
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-900">Recorded Sessions</p>
-              <p className="text-xs text-slate-500">{recordingAttempts.length} total</p>
-            </div>
-            <div className="mt-3 space-y-2">
-              {recordingAttempts.map((attempt) => (
-                <div key={attempt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">Session {attempt.attempt_number}</p>
-                    <p className="text-xs text-slate-500">
-                      {attempt.created_at ? formatIstDateTime(attempt.created_at) : "Timestamp unavailable"}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                      {attempt.status.replaceAll("_", " ").replace(/\b\w/g, (m) => m.toUpperCase())}
-                    </span>
-                    {attempt.playback_url && (
-                      <a
-                        href={attempt.playback_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                      >
-                        Open
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 

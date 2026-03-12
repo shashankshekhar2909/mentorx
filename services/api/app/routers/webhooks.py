@@ -45,7 +45,9 @@ async def razorpay_webhook(
                 db,
                 user_id=session.mentor_id,
                 title="Booking confirmed via webhook",
-                message=f"Session {session.id} is confirmed after webhook payment capture.",
+                message="A class booking was confirmed after payment capture.",
+                event_type="payment_confirmed",
+                link_path=f"/dashboard/sessions/{session.id}",
             )
     db.commit()
 
@@ -82,7 +84,7 @@ async def livekit_egress_webhook(
         if isinstance(file_results, list) and file_results:
             first = file_results[0] or {}
             object_key = first.get("filename") or first.get("filepath")
-        object_key = object_key or row.object_key or f"recordings/{session.id}/meeting.mp4"
+        object_key = object_key or row.object_key or f"recordings/{session.id}/session-{row.attempt_number}.mp4"
         recording_service.mark_uploaded(db, session.id, object_key, recording_id=row.id)
         if session.status == SessionStatus.in_progress:
             session.status = SessionStatus.completed

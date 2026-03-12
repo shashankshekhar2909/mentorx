@@ -7,6 +7,7 @@ from ..core.rbac import Role
 from ..models.category import Category
 from ..models.chat_thread import ChatThread
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
+from ..models.profile import Profile
 from ..models.session import Session as MentorshipSession, SessionStatus
 from ..models.user import User
 from ..schemas.mentor import MentorCard, MentorDiscoveryCard, MentorStudentCard
@@ -59,6 +60,15 @@ def discover_mentors(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only students can browse mentor discovery")
 
     normalized_category = (category or "").strip().lower()
+    active_categories = {row.slug.lower() for row in db.query(Category).filter(Category.is_active == True).all()}  # noqa: E712
+    profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+    student_categories = {
+        item.strip().lower()
+        for item in ((profile.target_exams if profile else "") or "").split(",")
+        if item.strip()
+    } & active_categories
+    if normalized_category and normalized_category not in student_categories:
+        return []
 
     query = db.query(MentorProfile).filter(MentorProfile.verification_status == MentorVerificationStatus.approved)
     if max_price is not None:
@@ -81,9 +91,14 @@ def discover_mentors(
             matched_thread = thread_map.get((m.user_id, normalized_category))
         if matched_thread is None:
             matched_thread = mentor_connection_map.get(m.user_id)
-        matches_filter = not normalized_category or normalized_category in mentor_subjects
+        matches_student_scope = bool(mentor_subjects & student_categories)
+        matches_filter = (not normalized_category and matches_student_scope) or (
+            bool(normalized_category) and normalized_category in mentor_subjects
+        )
         is_connected = bool(matched_thread and matched_thread.status == "active")
         is_requested = bool(matched_thread and matched_thread.status == "pending")
+        if not matches_student_scope:
+            continue
         if not matches_filter and not (is_connected or is_requested):
             continue
         cards.append(MentorDiscoveryCard(

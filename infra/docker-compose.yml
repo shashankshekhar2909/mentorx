@@ -42,8 +42,6 @@ services:
       - ../services/api:/app
     depends_on:
       - redis
-      - minio
-      - livekit
 
   redis:
     image: redis:7-alpine
@@ -52,6 +50,7 @@ services:
 
   minio:
     image: minio/minio:latest
+    profiles: ["local-media"]
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minio
@@ -70,6 +69,7 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
+    profiles: ["local-media"]
     command: --config /config/livekit.yaml
     ports:
       - "7880:7880"
@@ -80,6 +80,7 @@ services:
 
   livekit-egress:
     image: livekit/egress:latest
+    profiles: ["local-media"]
     environment:
       EGRESS_CONFIG_FILE: /config/egress.yaml
     volumes:

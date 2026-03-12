@@ -34,13 +34,16 @@ class RecordingService:
             .first()
         )
 
+    def next_attempt_number(self, db: Session, session_id: str) -> int:
+        latest = self.latest_recording(db, session_id, include_deleted=True)
+        return (latest.attempt_number + 1) if latest else 1
+
     def start_recording(self, db: Session, session_id: str, egress_id: str | None = None) -> SessionRecording:
         existing = self.active_recording(db, session_id)
         if existing and existing.status == RecordingStatus.recording:
             return existing
 
-        latest = self.latest_recording(db, session_id, include_deleted=True)
-        next_attempt = (latest.attempt_number + 1) if latest else 1
+        next_attempt = self.next_attempt_number(db, session_id)
         row = SessionRecording(session_id=session_id, attempt_number=next_attempt)
         db.add(row)
         row.egress_id = egress_id
