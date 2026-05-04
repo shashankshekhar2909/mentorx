@@ -26,6 +26,7 @@ This file is the shared working context for the project. It should be updated on
 - Session disputes + admin dispute resolution
 - Notifications list
 - AI study plan + mentor recommendation
+- MCQ practice tests with seeded category-based tests, score history, and manager/admin authoring
 - Admin APIs: overview, users, sessions, verifications, disputes
 - Frontend dashboards for student/mentor/admin + admin subpages
 
@@ -36,6 +37,18 @@ This file is the shared working context for the project. It should be updated on
 - Full search/filter UX and scheduling engine
 - Marketplace checkout + access control hardening
 - Advanced analytics and moderation workflows
+- Practice-test mentor grant-based authoring is not implemented yet
+
+## Latest Changes (2026-04-19)
+- Implemented the first-cut MCQ practice-test module:
+  - added backend practice-test models, schemas, seeding, and routers for listing tests, taking attempts, and authoring tests
+  - added student dashboard page at `/dashboard/student/practice-tests`
+  - added manager/admin authoring page at `/dashboard/admin/practice-tests`
+  - updated dashboard navigation to expose the new practice-test surfaces
+- Added MCQ practice-test scope to planning docs:
+  - updated [docs/PLAN.md](/home/shashank/project/mentorx/docs/PLAN.md) with the imported quiz-module scope from the older `mentorxai` project
+  - added [docs/MCQ_PRACTICE_TEST_PLAN.md](/home/shashank/project/mentorx/docs/MCQ_PRACTICE_TEST_PLAN.md) for the dedicated first-cut design
+  - retained the dedicated plan doc as the reference for later expansion
 
 ## Latest Changes (2026-03-13)
 - Reworked admin home into a monitoring-first console in [/home/shashank/project/mentorx/apps/web/app/dashboard/admin/page.tsx](/home/shashank/project/mentorx/apps/web/app/dashboard/admin/page.tsx):

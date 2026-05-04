@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 
 type CategoryOption = {
@@ -102,7 +101,7 @@ export default function StudentMentorsPage() {
   }, [activeCategory]);
 
   return (
-    <DashboardShell role="student" title="Find Mentors">
+    <>
       <section className="space-y-4">
         <article className="app-card p-5">
           <h2 className="text-lg font-semibold">Select Category</h2>
@@ -198,6 +197,6 @@ export default function StudentMentorsPage() {
           {mentors.length === 0 && <p className="text-sm text-slate-500">No mentors found in your selected study category.</p>}
         </div>
       </section>
-    </DashboardShell>
+    </>
   );
 }

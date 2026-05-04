@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 
 type Resource = {
@@ -54,7 +53,7 @@ export default function ResourcesPage() {
   }, [items, categoryFilter]);
 
   return (
-    <DashboardShell role="student" title="Resources Marketplace">
+    <>
       <section className="space-y-4">
         <div className="rounded-xl bg-card p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Subject Material & Sheets</h2>
@@ -93,6 +92,6 @@ export default function ResourcesPage() {
           {filtered.length === 0 && <p className="text-sm text-black/60">No resources found.</p>}
         </div>
       </section>
-    </DashboardShell>
+    </>
   );
 }

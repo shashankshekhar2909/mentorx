@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import { formatIstDateTime } from "@/lib/presentation";
@@ -199,7 +198,7 @@ export default function RecordingsPage() {
   }, []);
 
   return (
-    <DashboardShell role={["student", "mentor", "manager", "admin"] as Role[]} title="Recordings">
+    <>
       <article className="app-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Session Recordings</h2>
@@ -289,6 +288,6 @@ export default function RecordingsPage() {
           {loading && <p className="text-sm text-slate-500">Loading recordings...</p>}
         </div>
       </article>
-    </DashboardShell>
+    </>
   );
 }

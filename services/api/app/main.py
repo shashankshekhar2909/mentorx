@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
 from .core.database import Base, SessionLocal, engine
-from .routers import admin, ai, auth, bookings, categories, chats, mentors, notifications, payments, resources, reviews, sessions, uploads, users, webhooks
+from .routers import admin, ai, auth, bookings, categories, chats, mentors, notifications, payments, practice, resources, reviews, sessions, uploads, users, webhooks
 from .services.bootstrap_service import ensure_storage_bucket, seed_default_users
 
 
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app.include_router(chats.router, prefix=settings.api_prefix)
     app.include_router(sessions.router, prefix=settings.api_prefix)
     app.include_router(payments.router, prefix=settings.api_prefix)
+    app.include_router(practice.router, prefix=settings.api_prefix)
     app.include_router(uploads.router, prefix=settings.api_prefix)
     app.include_router(webhooks.router, prefix=settings.api_prefix)
     app.include_router(resources.router, prefix=settings.api_prefix)

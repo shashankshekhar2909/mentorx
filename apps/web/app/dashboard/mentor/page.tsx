@@ -1,8 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 
 type Booking = {
@@ -33,6 +33,18 @@ type UploadedResource = {
   created_at: string;
 };
 
+function statusStyle(status: string): { background: string; border: string; color: string } {
+  if (status === "ready_to_join" || status === "in_progress")
+    return { background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#34d399" };
+  if (status === "pending_mentor_approval" || status === "pending_manager_approval")
+    return { background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", color: "#fbbf24" };
+  if (status === "pending_payment")
+    return { background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.3)", color: "#60a5fa" };
+  if (status === "cancelled" || status === "no_show")
+    return { background: "rgba(244,63,94,0.12)", border: "1px solid rgba(244,63,94,0.3)", color: "#fb7185" };
+  return { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#94a3b8" };
+}
+
 export default function MentorDashboardPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [studentNames, setStudentNames] = useState<Record<string, string>>({});
@@ -62,7 +74,10 @@ export default function MentorDashboardPage() {
         : [],
     );
 
-    const [rowsResp, meUserResp] = await Promise.all([authedFetch("/bookings/mine"), authedFetch("/users/me")]);
+    const [rowsResp, meUserResp] = await Promise.all([
+      authedFetch("/bookings/mine"),
+      authedFetch("/users/me"),
+    ]);
     const [rows, meResp] = await Promise.all([parseJsonSafe(rowsResp), parseJsonSafe(meUserResp)]);
     const bookingRows = Array.isArray(rows) ? rows : [];
     setBookings(bookingRows);
@@ -71,9 +86,7 @@ export default function MentorDashboardPage() {
       bookingRows.map(async (booking) => {
         const resp = await authedFetch(`/sessions/${booking.id}/participants`);
         const data = await parseJsonSafe(resp);
-        if (resp.ok && data?.student?.id) {
-          names[data.student.id] = data.student.name ?? data.student.id;
-        }
+        if (resp.ok && data?.student?.id) names[data.student.id] = data.student.name ?? data.student.id;
       }),
     );
     setStudentNames(names);
@@ -105,7 +118,10 @@ export default function MentorDashboardPage() {
       const signResp = await authedFetch("/resources/upload-sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file_name: resourceFile.name, content_type: resourceFile.type || "application/octet-stream" }),
+        body: JSON.stringify({
+          file_name: resourceFile.name,
+          content_type: resourceFile.type || "application/octet-stream",
+        }),
       });
       const signData = await parseJsonSafe(signResp);
       if (!signResp.ok || !signData?.upload_url || !signData?.object_key) {
@@ -132,16 +148,10 @@ export default function MentorDashboardPage() {
       }),
     });
     const created = await parseJsonSafe(createResp);
-    if (!createResp.ok) {
-      setResourceMsg(created?.detail ?? "Unable to create resource");
-      return;
-    }
+    if (!createResp.ok) { setResourceMsg(created?.detail ?? "Unable to create resource"); return; }
     setResourceMsg(`Resource created: ${created.title}`);
-    setResourceTitle("");
-    setResourceDesc("");
-    setResourceCategory("");
-    setResourcePrice(0);
-    setResourceFile(null);
+    setResourceTitle(""); setResourceDesc(""); setResourceCategory("");
+    setResourcePrice(0); setResourceFile(null);
     await refresh();
   }
 
@@ -149,16 +159,10 @@ export default function MentorDashboardPage() {
     const resp = await authedFetch(`/resources/${resource.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: resource.title,
-        description: resource.description,
-        category: resource.category,
-        price: resource.price,
-        is_active: !resource.is_active,
-      }),
+      body: JSON.stringify({ ...resource, is_active: !resource.is_active }),
     });
     const data = await parseJsonSafe(resp);
-    setResourceMsg(resp.ok ? `Updated ${data.title}` : (data?.detail ?? "Unable to update resource"));
+    setResourceMsg(resp.ok ? `Updated ${data.title}` : (data?.detail ?? "Unable to update"));
     await refresh();
   }
 
@@ -166,13 +170,7 @@ export default function MentorDashboardPage() {
     const resp = await authedFetch(`/resources/${resource.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: resource.title,
-        description: resource.description,
-        category: resource.category,
-        price: nextPrice,
-        is_active: resource.is_active,
-      }),
+      body: JSON.stringify({ ...resource, price: nextPrice }),
     });
     const data = await parseJsonSafe(resp);
     setResourceMsg(resp.ok ? `Updated ${data.title}` : (data?.detail ?? "Unable to update price"));
@@ -182,7 +180,7 @@ export default function MentorDashboardPage() {
   async function deleteResource(resourceId: string) {
     const resp = await authedFetch(`/resources/${resourceId}`, { method: "DELETE" });
     const data = await parseJsonSafe(resp);
-    setResourceMsg(resp.ok ? "Resource deleted" : (data?.detail ?? "Unable to delete resource"));
+    setResourceMsg(resp.ok ? "Resource deleted" : (data?.detail ?? "Unable to delete"));
     await refresh();
   }
 
@@ -202,26 +200,16 @@ export default function MentorDashboardPage() {
     });
     const resp = await authedFetch(`/mentors/me?${query.toString()}`, { method: "PUT" });
     const data = await parseJsonSafe(resp);
-    if (resp.ok) {
-      setProfile(data);
-      setProfileMsg("Mentor profile updated");
-    } else {
-      setProfileMsg(data?.detail ?? "Unable to update mentor profile");
-    }
+    if (resp.ok) { setProfile(data); setProfileMsg("Mentor profile updated"); }
+    else setProfileMsg(data?.detail ?? "Unable to update mentor profile");
   }
 
-  useEffect(() => {
-    void refresh();
-  }, []);
+  useEffect(() => { void refresh(); }, []);
 
-  const examList = exams
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
+  const examList = exams.split(",").map((x) => x.trim()).filter(Boolean);
 
   function addCategory(slug: string) {
-    if (!slug) return;
-    if (examList.includes(slug)) return;
+    if (!slug || examList.includes(slug)) return;
     setExams([...examList, slug].join(","));
     setSelectedCategory("");
   }
@@ -231,162 +219,288 @@ export default function MentorDashboardPage() {
   }
 
   return (
-    <DashboardShell role="mentor" title="Mentor Dashboard">
+    <>
       <div className="space-y-4">
-        <article className="app-card p-5">
-          <h2 className="text-lg font-semibold">Your Mentor Profile</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Configure categories/subjects and pricing that students see.
-          </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
-            <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Headline" value={headline} onChange={(e) => setHeadline(e.target.value)} />
-            <div className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              <p className="mb-2 text-xs text-slate-500">Categories</p>
-              <div className="mb-2 flex flex-wrap gap-2">
+        {/* Mentor profile card */}
+        <article className="app-card p-6">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-white">Your Mentor Profile</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Configure your categories and pricing visible to students.
+              </p>
+            </div>
+            {profile && (
+              <span
+                className="rounded-full px-3 py-1 text-[11px] font-semibold capitalize"
+                style={{
+                  background: profile.verification_status === "approved"
+                    ? "rgba(16,185,129,0.12)"
+                    : "rgba(245,158,11,0.12)",
+                  border: profile.verification_status === "approved"
+                    ? "1px solid rgba(16,185,129,0.3)"
+                    : "1px solid rgba(245,158,11,0.3)",
+                  color: profile.verification_status === "approved" ? "#34d399" : "#fbbf24",
+                }}
+              >
+                {profile.verification_status}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Headline</span>
+              <input
+                className="input-dark"
+                placeholder="e.g. IIT Delhi, JEE AIR 47"
+                value={headline}
+                onChange={(e) => setHeadline(e.target.value)}
+              />
+            </label>
+
+            <div
+              className="rounded-xl p-3"
+              style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}
+            >
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Exam Categories
+              </p>
+              <div className="mb-2 flex flex-wrap gap-1.5">
                 {examList.map((slug) => (
                   <button
                     key={slug}
                     type="button"
-                    className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs"
+                    className="rounded-full px-2.5 py-1 text-[11px] font-semibold text-violet-300 transition hover:text-rose-400"
+                    style={{ background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.2)" }}
                     onClick={() => removeCategory(slug)}
                   >
-                    {slug} ×
+                    {slug} &times;
                   </button>
                 ))}
-                {examList.length === 0 && <span className="text-xs text-slate-400">No categories selected</span>}
+                {examList.length === 0 && (
+                  <span className="text-xs text-slate-500">No categories selected</span>
+                )}
               </div>
               <select
-                className="w-full rounded border px-2 py-1.5"
+                className="input-dark"
                 value={selectedCategory}
-                onChange={(e) => {
-                  setSelectedCategory(e.target.value);
-                  addCategory(e.target.value);
-                }}
+                onChange={(e) => { setSelectedCategory(e.target.value); addCategory(e.target.value); }}
               >
-                <option value="">Select category</option>
-                {categoryOptions
-                  .filter((item) => !examList.includes(item.slug))
-                  .map((item) => (
-                    <option key={item.slug} value={item.slug}>
-                      {item.name}
-                    </option>
-                  ))}
+                <option value="">Add category...</option>
+                {categoryOptions.filter((item) => !examList.includes(item.slug)).map((item) => (
+                  <option key={item.slug} value={item.slug}>{item.name}</option>
+                ))}
               </select>
             </div>
-            <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Experience in years" type="number" min={0} value={years} onChange={(e) => setYears(Number(e.target.value))} />
-            <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Hourly price" type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value))} />
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Experience (years)</span>
+              <input
+                className="input-dark"
+                type="number"
+                min={0}
+                value={years}
+                onChange={(e) => setYears(Number(e.target.value))}
+              />
+            </label>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Hourly Price (₹)</span>
+              <input
+                className="input-dark"
+                type="number"
+                min={0}
+                value={price}
+                onChange={(e) => setPrice(Number(e.target.value))}
+              />
+            </label>
           </div>
-          <div className="mt-3 flex items-center gap-3">
-            <button className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white" onClick={() => void saveProfile()}>
+
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500"
+              onClick={() => void saveProfile()}
+            >
               Save Profile
             </button>
-            <span className="text-xs text-slate-600">
-              Verification: {profile?.verification_status ?? "unknown"}
-            </span>
+            {profileMsg && (
+              <span className="text-sm text-slate-400">{profileMsg}</span>
+            )}
           </div>
-          {profileMsg && <p className="mt-2 text-sm text-slate-700">{profileMsg}</p>}
         </article>
 
-        <article className="app-card p-5">
-          <h2 className="text-lg font-semibold"><i className="fa-solid fa-book mr-2 text-accent" />Publish Study Resource</h2>
-          <p className="mt-1 text-sm text-slate-600">Upload notes/sheets/videos and attach a predefined exam category.</p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
-            <input className="rounded border px-3 py-2" placeholder="Title" value={resourceTitle} onChange={(e) => setResourceTitle(e.target.value)} />
-            <select className="rounded border px-3 py-2" value={resourceCategory} onChange={(e) => setResourceCategory(e.target.value)}>
-              <option value="">Select category</option>
-              {categoryOptions.map((item) => (
-                <option key={item.slug} value={item.slug}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-            <input
-              className="rounded border px-3 py-2"
-              placeholder="Price"
-              type="number"
-              min={0}
-              value={resourcePrice}
-              onChange={(e) => setResourcePrice(Number(e.target.value))}
-            />
-            <input className="rounded border px-3 py-2" type="file" onChange={(e) => setResourceFile(e.target.files?.[0] ?? null)} />
-            <textarea className="rounded border px-3 py-2 md:col-span-2" placeholder="Description" value={resourceDesc} onChange={(e) => setResourceDesc(e.target.value)} />
+        {/* Publish resource */}
+        <article className="app-card p-6">
+          <h2 className="mb-1 font-bold text-white">
+            <i className="fa-solid fa-cloud-arrow-up mr-2 text-blue-400" />
+            Publish Study Resource
+          </h2>
+          <p className="mb-4 text-sm text-slate-500">
+            Upload notes, sheets, or videos and attach them to an exam category.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Title</span>
+              <input className="input-dark" placeholder="Resource title" value={resourceTitle} onChange={(e) => setResourceTitle(e.target.value)} />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Category</span>
+              <select className="input-dark" value={resourceCategory} onChange={(e) => setResourceCategory(e.target.value)}>
+                <option value="">Select category</option>
+                {categoryOptions.map((item) => (
+                  <option key={item.slug} value={item.slug}>{item.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Price (₹, 0 = free)</span>
+              <input className="input-dark" type="number" min={0} value={resourcePrice} onChange={(e) => setResourcePrice(Number(e.target.value))} />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">File (optional)</span>
+              <input
+                className="input-dark file:mr-3 file:rounded-lg file:border-0 file:bg-violet-500/20 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-violet-300"
+                type="file"
+                onChange={(e) => setResourceFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label className="block space-y-1.5 md:col-span-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Description</span>
+              <textarea className="input-dark min-h-[80px] resize-y" placeholder="Short description..." value={resourceDesc} onChange={(e) => setResourceDesc(e.target.value)} />
+            </label>
           </div>
-          <button className="mt-3 rounded-md bg-accent px-3 py-1.5 text-sm text-white" onClick={() => void uploadResource()}>
-            <i className="fa-solid fa-cloud-arrow-up mr-2" />
-            Publish Resource
-          </button>
-          {resourceMsg && <p className="mt-2 text-sm text-slate-700">{resourceMsg}</p>}
+
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 px-4 py-2 text-sm font-bold text-white transition hover:from-blue-500 hover:to-cyan-500"
+              onClick={() => void uploadResource()}
+            >
+              <i className="fa-solid fa-cloud-arrow-up mr-2" />
+              Publish Resource
+            </button>
+            {resourceMsg && <span className="text-sm text-slate-400">{resourceMsg}</span>}
+          </div>
         </article>
 
-        <article className="app-card p-5">
-          <h2 className="text-lg font-semibold"><i className="fa-solid fa-table-list mr-2 text-accent" />My Uploaded Resources</h2>
-          <div className="mt-3 space-y-2">
-            {uploadedResources.map((row) => (
-              <div key={row.id} className="rounded-md border p-3 text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="font-semibold">{row.title}</p>
-                    <p className="text-xs text-slate-500">
-                      {row.category || "uncategorized"} • {new Date(row.created_at).toLocaleDateString()}
+        {/* My uploaded resources */}
+        {uploadedResources.length > 0 && (
+          <article className="app-card p-6">
+            <h2 className="mb-4 font-bold text-white">
+              <i className="fa-solid fa-table-list mr-2 text-cyan-400" />
+              My Uploaded Resources
+            </h2>
+            <div className="space-y-3">
+              {uploadedResources.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl p-4"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white">{row.title}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {row.category || "uncategorized"} &bull;{" "}
+                      {new Date(row.created_at).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className={`rounded px-2 py-1 text-xs ${row.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                    {row.is_active ? "Enabled" : "Disabled"}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                      style={
+                        row.is_active
+                          ? { background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", color: "#34d399" }
+                          : { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#64748b" }
+                      }
+                    >
+                      {row.is_active ? "Active" : "Disabled"}
+                    </span>
+                    <input
+                      className="input-dark w-24 text-sm"
+                      type="number"
+                      min={0}
+                      defaultValue={row.price}
+                      onBlur={(e) => void updatePrice(row, Number(e.target.value) || 0)}
+                    />
+                    <button
+                      className="rounded-xl border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:border-white/20 hover:text-white"
+                      onClick={() => void toggleResource(row)}
+                    >
+                      {row.is_active ? "Disable" : "Enable"}
+                    </button>
+                    <button
+                      className="rounded-xl border border-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-400 transition hover:bg-rose-500/10"
+                      onClick={() => void deleteResource(row.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    className="w-28 rounded border px-2 py-1"
-                    type="number"
-                    min={0}
-                    defaultValue={row.price}
-                    onBlur={(e) => void updatePrice(row, Number(e.target.value) || 0)}
-                  />
-                  <button className="rounded border px-2 py-1" onClick={() => void toggleResource(row)}>
-                    {row.is_active ? "Disable" : "Enable"}
-                  </button>
-                  <button className="rounded border px-2 py-1 text-red-600" onClick={() => void deleteResource(row.id)}>
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-            {uploadedResources.length === 0 && <p className="text-sm text-slate-500">No uploaded resources yet.</p>}
-          </div>
-        </article>
-
-        {bookings.map((booking) => (
-          <article key={booking.id} className="app-card p-5">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold">{booking.title}</h2>
-                <p className="text-xs text-slate-500">{new Date(booking.starts_at).toLocaleString()} • {booking.duration_minutes} min</p>
-                <p className="text-xs text-slate-500">Student: {studentNames[booking.student_id] ?? booking.student_id}</p>
-              </div>
-              <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
-                {booking.status}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {booking.status === "pending_mentor_approval" && (
-                <button
-                  type="button"
-                  onClick={() => approveSession(booking.id)}
-                  disabled={busy === booking.id}
-                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Approve Request
-                </button>
-              )}
-              {["confirmed", "ready_to_join", "in_progress"].includes(booking.status) && (
-                <a className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white" href={`/dashboard/sessions/${booking.id}`}>Join Call</a>
-              )}
-              <a className="rounded-md border px-3 py-1.5 text-sm" href={`/dashboard/sessions/${booking.id}`}>Open Meeting Review</a>
+              ))}
             </div>
           </article>
-        ))}
-        {bookings.length === 0 && <p className="text-sm text-black/60">No sessions assigned yet.</p>}
+        )}
+
+        {/* Bookings */}
+        {bookings.length > 0 ? (
+          <div className="space-y-3">
+            <h2 className="font-bold text-white">
+              <i className="fa-solid fa-calendar-days mr-2 text-violet-400" />
+              Your Sessions
+            </h2>
+            {bookings.map((booking) => (
+              <article key={booking.id} className="app-card p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-white">{booking.title}</h3>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      {new Date(booking.starts_at).toLocaleString()} &bull; {booking.duration_minutes} min
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      Student: {studentNames[booking.student_id] ?? booking.student_id}
+                    </p>
+                  </div>
+                  <span
+                    className="rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize"
+                    style={statusStyle(booking.status)}
+                  >
+                    {booking.status.replaceAll("_", " ")}
+                  </span>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {booking.status === "pending_mentor_approval" && (
+                    <button
+                      type="button"
+                      onClick={() => void approveSession(booking.id)}
+                      disabled={busy === booking.id}
+                      className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50"
+                    >
+                      Approve Request
+                    </button>
+                  )}
+                  {["confirmed", "ready_to_join", "in_progress"].includes(booking.status) && (
+                    <Link
+                      href={`/dashboard/sessions/${booking.id}`}
+                      className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500"
+                    >
+                      Join Call
+                    </Link>
+                  )}
+                  <Link
+                    href={`/dashboard/sessions/${booking.id}`}
+                    className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-slate-400 transition hover:border-white/20 hover:text-white"
+                  >
+                    Open Review
+                  </Link>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">No sessions assigned yet.</p>
+        )}
       </div>
-    </DashboardShell>
+    </>
   );
 }

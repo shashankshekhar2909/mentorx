@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { ChatPanel } from "@/components/chat-panel";
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 
 type Mentor = {
@@ -42,18 +41,16 @@ export default function StudentChatsPage() {
   }, []);
 
   return (
-    <DashboardShell role="student" title="Student Chats">
-      <ChatPanel
-        role="student"
-        mentorOptions={mentors.map((mentor) => ({
-          id: mentor.user_id,
-          label: `${mentor.headline ?? mentor.user_id} | ${mentor.exams ?? "-"}`,
-        }))}
-        defaultMentorId={searchParams.get("mentor") ?? ""}
-        defaultSubject={searchParams.get("subject") ?? ""}
-        defaultThreadId={searchParams.get("thread") ?? ""}
-        subjectOptions={categoryList}
-      />
-    </DashboardShell>
+    <ChatPanel
+      role="student"
+      mentorOptions={mentors.map((mentor) => ({
+        id: mentor.user_id,
+        label: `${mentor.headline ?? mentor.user_id} | ${mentor.exams ?? "-"}`,
+      }))}
+      defaultMentorId={searchParams.get("mentor") ?? ""}
+      defaultSubject={searchParams.get("subject") ?? ""}
+      defaultThreadId={searchParams.get("thread") ?? ""}
+      subjectOptions={categoryList}
+    />
   );
 }

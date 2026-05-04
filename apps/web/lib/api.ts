@@ -38,9 +38,17 @@ export async function authedFetch(path: string, init: RequestInit = {}): Promise
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(apiUrl(path), { ...init, headers });
   if (response.status === 401) {
-    useAuthStore.getState().clearSession();
+    const { session, clearSession } = useAuthStore.getState();
+    if (session) {
+      clearSession();
+    }
     if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
+      const key = "mentorx_auth_redirecting";
+      const isRedirecting = window.sessionStorage.getItem(key) === "1";
+      if (!isRedirecting) {
+        window.sessionStorage.setItem(key, "1");
+        window.location.replace("/login");
+      }
     }
   }
   return response;

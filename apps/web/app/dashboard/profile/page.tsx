@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth-store";
 import type { Role } from "@/lib/types";
@@ -81,35 +80,51 @@ export default function ProfilePage() {
     void refresh();
   }, []);
 
+  const infoRow = (label: string, value: React.ReactNode) => (
+    <div
+      className="rounded-xl p-4"
+      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+    >
+      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">{label}</p>
+      <div className="mt-1 font-semibold text-white">{value}</div>
+    </div>
+  );
+
   return (
-    <DashboardShell role={["student", "mentor", "manager", "admin"] as Role[]} title="Profile Settings">
+    <>
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <article className="app-card p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-100 text-teal-700">
+        {/* Edit form */}
+        <article className="app-card p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-violet-300"
+              style={{ background: "rgba(124,58,237,0.15)" }}
+            >
               <i className="fa-solid fa-id-badge text-lg" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Account Label</h2>
-              <p className="text-sm text-slate-600">This name is shown in menus, meetings, and participant labels.</p>
+              <h2 className="font-bold text-white">Account Label</h2>
+              <p className="text-sm text-slate-500">
+                This name is shown in menus, meetings, and participant labels.
+              </p>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4">
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-semibold text-slate-700">Display Name</span>
+          <div className="grid gap-4">
+            <label className="grid gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Display Name</span>
               <input
-                className="rounded-xl border border-slate-300 px-3 py-2.5"
+                className="input-dark"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder={profile?.email ?? "name@example.com"}
               />
             </label>
 
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-semibold text-slate-700">Bio</span>
+            <label className="grid gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Bio</span>
               <textarea
-                className="min-h-28 rounded-xl border border-slate-300 px-3 py-2.5"
+                className="input-dark min-h-28 resize-y"
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
                 placeholder="Add a short introduction or role note."
@@ -117,13 +132,13 @@ export default function ProfilePage() {
             </label>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-1.5 text-sm">
-                <span className="font-semibold text-slate-700">Timezone</span>
-                <input className="rounded-xl border border-slate-300 px-3 py-2.5" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+              <label className="grid gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Timezone</span>
+                <input className="input-dark" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
               </label>
-              <label className="grid gap-1.5 text-sm">
-                <span className="font-semibold text-slate-700">Language</span>
-                <input className="rounded-xl border border-slate-300 px-3 py-2.5" value={language} onChange={(e) => setLanguage(e.target.value)} />
+              <label className="grid gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Language</span>
+                <input className="input-dark" value={language} onChange={(e) => setLanguage(e.target.value)} />
               </label>
             </div>
           </div>
@@ -131,47 +146,51 @@ export default function ProfilePage() {
           <div className="mt-5 flex items-center gap-3">
             <button
               type="button"
-              className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500 disabled:opacity-60"
               onClick={() => void saveProfile()}
               disabled={saving}
             >
               {saving ? "Saving..." : "Save Profile"}
             </button>
-            {message && <p className="text-sm text-slate-600">{message}</p>}
+            {message && <p className="text-sm text-slate-400">{message}</p>}
           </div>
         </article>
 
-        <article className="app-card p-5">
-          <h2 className="text-lg font-semibold text-slate-900">Identity</h2>
-          <p className="mt-1 text-sm text-slate-600">Shown consistently across mentorXAI for account verification and participant clarity.</p>
+        {/* Identity card */}
+        <article className="app-card p-6">
+          <h2 className="mb-1 font-bold text-white">Identity</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            Shown consistently across mentorXAI for account verification and participant clarity.
+          </p>
 
-          <div className="mt-4 space-y-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Current Label</p>
-              <p className="mt-1 text-lg font-semibold text-slate-900">{profile?.display_name ?? session?.displayName ?? session?.email}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Email</p>
-              <p className="mt-1 font-semibold text-slate-900">{profile?.email ?? session?.email}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">User Type</p>
-              <p className="mt-1 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+          <div className="space-y-3">
+            {infoRow("Current Label", profile?.display_name ?? session?.displayName ?? session?.email)}
+            {infoRow("Email", profile?.email ?? session?.email)}
+            {infoRow(
+              "User Type",
+              <span
+                className="inline-flex rounded-full px-3 py-1 text-sm font-semibold text-violet-300"
+                style={{ background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.2)" }}
+              >
                 {profile?.role ? roleLabel(profile.role) : session?.role ? roleLabel(session.role) : ""}
-              </p>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              <div className="flex items-center gap-2 font-semibold">
+              </span>,
+            )}
+            <div
+              className="rounded-xl p-4 text-sm text-amber-400"
+              style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}
+            >
+              <div className="mb-1 flex items-center gap-2 font-semibold">
                 <i className="fa-solid fa-circle-info" />
                 Default behavior
               </div>
-              <p className="mt-2">
-                If you leave display name blank, mentorXAI will use your email as the visible label in calls, menus, and participant lists.
+              <p>
+                If you leave display name blank, mentorXAI will use your email as the visible label in
+                calls, menus, and participant lists.
               </p>
             </div>
           </div>
         </article>
       </div>
-    </DashboardShell>
+    </>
   );
 }

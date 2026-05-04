@@ -15,6 +15,7 @@ from .manager_scope import ManagerScope
 from .category import Category
 from .chat_thread import ChatThread, ChatThreadStatus
 from .chat_message import ChatMessage
+from .practice_test import PracticeAttempt, PracticeAttemptAnswer, PracticeQuestion, PracticeTest
 
 __all__ = [
     "User",
@@ -41,4 +42,8 @@ __all__ = [
     "ChatThread",
     "ChatThreadStatus",
     "ChatMessage",
+    "PracticeTest",
+    "PracticeQuestion",
+    "PracticeAttempt",
+    "PracticeAttemptAnswer",
 ]

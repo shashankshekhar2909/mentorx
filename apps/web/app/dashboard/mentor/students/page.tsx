@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { DashboardShell } from "@/components/dashboard-shell";
 import { authedFetch, parseJsonSafe } from "@/lib/api";
 
 type StudentRow = {
@@ -29,7 +28,7 @@ export default function MentorStudentsPage() {
   }, []);
 
   return (
-    <DashboardShell role="mentor" title="My Students">
+    <>
       <section className="space-y-4">
         <article className="app-card p-5">
           <h2 className="text-lg font-semibold">Connected Students</h2>
@@ -74,6 +73,6 @@ export default function MentorStudentsPage() {
           {rows.length === 0 && <p className="text-sm text-slate-500">No students connected yet.</p>}
         </div>
       </section>
-    </DashboardShell>
+    </>
   );
 }

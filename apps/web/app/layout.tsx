@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <head>
         <link
           rel="stylesheet"
@@ -38,7 +38,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className={`${bodyFont.variable} ${displayFont.variable}`}>
         <Providers>
           <TopNav />
-          <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">{children}</main>
+          {/*
+            No max-width or padding constraints here — every page is responsible
+            for its own inner layout. The TopNav is sticky and full-width.
+          */}
+          <main className="w-full">{children}</main>
         </Providers>
       </body>
     </html>

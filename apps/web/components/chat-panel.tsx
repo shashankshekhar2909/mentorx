@@ -68,10 +68,10 @@ function formatStatus(status: string): string {
 }
 
 function statusClasses(status: string): string {
-  if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-800";
-  if (status === "rejected") return "border-rose-200 bg-rose-50 text-rose-800";
-  return "border-slate-200 bg-slate-100 text-slate-700";
+  if (status === "active") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-400";
+  if (status === "pending") return "border-amber-500/30 bg-amber-500/10 text-amber-400";
+  if (status === "rejected") return "border-rose-500/30 bg-rose-500/10 text-rose-400";
+  return "border-white/10 bg-white/5 text-slate-400";
 }
 
 export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defaultSubject = "", defaultThreadId = "", subjectOptions = [] }: Props) {
@@ -279,62 +279,69 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
 
   return (
     <article className="app-card p-5">
+      {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">1:1 Chat</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <h2 className="font-bold text-white">1:1 Chat</h2>
+          <p className="mt-1 text-sm text-slate-500">
             {role === "student"
               ? "Request a subject chat, wait for mentor acceptance, then message or start an instant call."
               : "Accept chat requests for your subjects and keep an active inbox with students."}
           </p>
         </div>
         {canUseBrowserNotifications && Notification.permission === "default" && (
-          <button className="rounded-md border px-3 py-1.5 text-xs" onClick={() => void Notification.requestPermission()}>
+          <button
+            className="rounded-xl border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:border-white/20 hover:text-white"
+            onClick={() => void Notification.requestPermission()}
+          >
             Enable Call Alerts
           </button>
         )}
       </div>
 
+      {/* New chat request (student) */}
       {role === "student" && (
-        <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
-          <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={requestMentorId} onChange={(e) => setRequestMentorId(e.target.value)}>
+        <div
+          className="mt-4 grid gap-3 rounded-xl p-3 md:grid-cols-3"
+          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+        >
+          <select className="input-dark" value={requestMentorId} onChange={(e) => setRequestMentorId(e.target.value)}>
             <option value="">Select mentor</option>
             {mentorOptions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
+              <option key={item.id} value={item.id}>{item.label}</option>
             ))}
           </select>
           <select
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="input-dark"
             value={requestSubject}
             onChange={(e) => setRequestSubject(e.target.value)}
             disabled={Boolean(defaultSubject) && subjectOptions.length <= 1}
           >
             <option value="">Select category</option>
             {subjectOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
+              <option key={item} value={item}>{item}</option>
             ))}
           </select>
           <button
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500 disabled:opacity-50"
             onClick={() => void createThread()}
             disabled={!requestMentorId || !resolvedRequestSubject}
           >
             Request Chat
           </button>
           <textarea
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-3"
+            className="input-dark min-h-[72px] resize-y md:col-span-3"
             value={requestMessage}
             onChange={(e) => setRequestMessage(e.target.value)}
             placeholder="Write the first message for the mentor"
           />
           {!resolvedRequestSubject && (
-            <div className="md:col-span-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Start new mentor connections from the mentor directory so the category is already selected.
-              <Link href="/dashboard/student/mentors" className="ml-2 font-semibold underline">
+            <div
+              className="rounded-xl px-3 py-2 text-sm text-amber-400 md:col-span-3"
+              style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}
+            >
+              Start new mentor connections from the mentor directory so the category is already selected.{" "}
+              <Link href="/dashboard/student/mentors" className="font-semibold underline">
                 Open Mentor Directory
               </Link>
             </div>
@@ -342,18 +349,25 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
         </div>
       )}
 
+      {/* Incoming call notifications */}
       {callNotifications.length > 0 && (
-        <div className="mt-4 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+        <div
+          className="mt-4 space-y-2 rounded-xl p-3"
+          style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)" }}
+        >
           {callNotifications.slice(0, 3).map((item) => {
             const sessionId = extractSessionIdFromLinkPath(item.link_path) ?? extractSessionId(item.message);
             return (
               <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
                 <div>
-                  <p className="font-semibold text-emerald-900">{item.title}</p>
-                  <p className="text-emerald-800">{item.message}</p>
+                  <p className="font-semibold text-emerald-300">{item.title}</p>
+                  <p className="text-emerald-400/80">{item.message}</p>
                 </div>
                 {sessionId && (
-                  <Link href={`/dashboard/sessions/${sessionId}`} className="rounded-md bg-emerald-600 px-3 py-1.5 text-white">
+                  <Link
+                    href={`/dashboard/sessions/${sessionId}`}
+                    className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-sm font-bold text-white transition hover:from-emerald-500 hover:to-teal-500"
+                  >
                     Join Now
                   </Link>
                 )}
@@ -363,33 +377,62 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
         </div>
       )}
 
+      {/* Thread list + message area */}
       <div className="mt-4 grid gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-2">
+        {/* Thread sidebar */}
+        <div
+          className="space-y-1.5 rounded-xl p-2"
+          style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+        >
           {threads.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setSelectedThreadId(item.id)}
-              className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${selectedThreadId === item.id ? "border-accent bg-accent/5" : "border-slate-200 bg-slate-50"}`}
+              className={`w-full rounded-xl px-3 py-2.5 text-left text-sm transition ${
+                selectedThreadId === item.id
+                  ? "bg-violet-500/15 text-white"
+                  : "text-slate-400 hover:bg-white/5 hover:text-white"
+              }`}
+              style={
+                selectedThreadId === item.id
+                  ? { border: "1px solid rgba(124,58,237,0.3)" }
+                  : { border: "1px solid transparent" }
+              }
             >
               <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-slate-900">{item.subject}</p>
-                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClasses(item.status)}`}>{formatStatus(item.status)}</span>
+                <p className="font-semibold">{item.subject}</p>
+                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClasses(item.status)}`}>
+                  {formatStatus(item.status)}
+                </span>
               </div>
-              <p className="mt-1 line-clamp-2 text-xs text-slate-600">{item.last_message_preview || "No messages yet"}</p>
-              <p className="mt-2 text-[11px] text-slate-400">{item.last_message_at ? new Date(item.last_message_at).toLocaleString() : "No activity yet"}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                {item.last_message_preview || "No messages yet"}
+              </p>
+              <p className="mt-1.5 text-[11px] text-slate-600">
+                {item.last_message_at
+                  ? new Date(item.last_message_at).toLocaleString()
+                  : "No activity yet"}
+              </p>
             </button>
           ))}
-          {threads.length === 0 && <p className="p-2 text-sm text-slate-500">No chat threads yet.</p>}
+          {threads.length === 0 && (
+            <p className="p-2 text-sm text-slate-500">No chat threads yet.</p>
+          )}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        {/* Message area */}
+        <div
+          className="rounded-xl p-3"
+          style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+        >
           {selectedThread ? (
             <>
+              {/* Thread header */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-slate-900">{selectedThread.subject}</p>
+                    <p className="font-bold text-white">{selectedThread.subject}</p>
                     <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClasses(selectedThread.status)}`}>
                       {formatStatus(selectedThread.status)}
                     </span>
@@ -403,10 +446,16 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                 <div className="flex flex-wrap gap-2">
                   {role === "mentor" && selectedThread.status === "pending" && (
                     <>
-                      <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white" onClick={() => void updateThread("accept")}>
+                      <button
+                        className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-sm font-bold text-white transition hover:from-emerald-500 hover:to-teal-500"
+                        onClick={() => void updateThread("accept")}
+                      >
                         Accept
                       </button>
-                      <button className="rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700" onClick={() => void updateThread("reject")}>
+                      <button
+                        className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-sm font-semibold text-rose-400 transition hover:bg-rose-500/20"
+                        onClick={() => void updateThread("reject")}
+                      >
                         Reject
                       </button>
                     </>
@@ -414,38 +463,61 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                   {selectedThread.status === "active" && (
                     <>
                       {!selectedThread.pending_call_session_id && role === "student" && (
-                        <button className="rounded-md bg-accent px-3 py-1.5 text-sm text-white" onClick={() => void startInstantCall()}>
+                        <button
+                          className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1.5 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500"
+                          onClick={() => void startInstantCall()}
+                        >
                           Request Call
                         </button>
                       )}
-                      {role === "mentor" && selectedThread.pending_call_status === "pending_mentor_approval" && selectedThread.pending_call_session_id && (
-                        <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white" onClick={() => void approvePendingCall()}>
-                          Approve & Join
-                        </button>
-                      )}
+                      {role === "mentor" &&
+                        selectedThread.pending_call_status === "pending_mentor_approval" &&
+                        selectedThread.pending_call_session_id && (
+                          <button
+                            className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-1.5 text-sm font-bold text-white transition hover:from-emerald-500 hover:to-teal-500"
+                            onClick={() => void approvePendingCall()}
+                          >
+                            Approve & Join
+                          </button>
+                        )}
                       {selectedThread.pending_call_session_id &&
-                        ["confirmed", "ready_to_join", "in_progress"].includes(selectedThread.pending_call_status ?? "") && (
+                        ["confirmed", "ready_to_join", "in_progress"].includes(
+                          selectedThread.pending_call_status ?? "",
+                        ) && (
                           <Link
                             href={`/dashboard/sessions/${selectedThread.pending_call_session_id}`}
-                            className="rounded-md bg-accent px-3 py-1.5 text-sm text-white"
+                            className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-3 py-1.5 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500"
                           >
                             Join Call
                           </Link>
                         )}
-                      {role === "student" && selectedThread.pending_call_status === "pending_mentor_approval" && (
-                        <span className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-800">
-                          Call Requested
-                        </span>
-                      )}
+                      {role === "student" &&
+                        selectedThread.pending_call_status === "pending_mentor_approval" && (
+                          <span
+                            className="rounded-xl px-3 py-1.5 text-sm font-semibold text-amber-400"
+                            style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)" }}
+                          >
+                            Call Requested
+                          </span>
+                        )}
                     </>
                   )}
                 </div>
               </div>
 
-              <div className="mt-3 max-h-96 space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 text-sm">
+              {/* Messages */}
+              <div
+                className="mt-3 max-h-96 space-y-3 overflow-y-auto rounded-xl p-3 text-sm styled-scrollbar"
+                style={{ background: "rgba(0,0,0,0.15)", border: "1px solid rgba(255,255,255,0.05)" }}
+              >
                 {messages.map((item) => {
-                  const isCallEvent = /^Requested an instant call\.|^Started an instant call\.|^Call ended\./.test(item.message);
-                  const callEventSessionId = isCallEvent ? extractSessionIdFromCallEvent(item.message) : null;
+                  const isCallEvent =
+                    /^Requested an instant call\.|^Started an instant call\.|^Call ended\./.test(
+                      item.message,
+                    );
+                  const callEventSessionId = isCallEvent
+                    ? extractSessionIdFromCallEvent(item.message)
+                    : null;
                   const isMine =
                     (role === "student" && item.sender_id === selectedThread.student_id) ||
                     (role === "mentor" && item.sender_id === selectedThread.mentor_id);
@@ -458,19 +530,30 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                   if (isCallEvent) {
                     return (
                       <div key={item.id} className="flex justify-center">
-                        <div className="max-w-[90%] rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-center text-xs font-medium text-sky-800 shadow-sm">
+                        <div
+                          className="max-w-[90%] rounded-2xl px-4 py-3 text-center text-xs font-medium text-blue-300"
+                          style={{
+                            background: "rgba(59,130,246,0.08)",
+                            border: "1px solid rgba(59,130,246,0.2)",
+                          }}
+                        >
                           <div className="flex flex-wrap items-center justify-center gap-2">
                             <i className="fa-solid fa-phone text-[11px]" />
                             <span>{item.message}</span>
-                            <span className="text-sky-600">
-                              {new Date(item.created_at).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })}
+                            <span className="text-blue-400/60">
+                              {new Date(item.created_at).toLocaleString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                day: "2-digit",
+                                month: "short",
+                              })}
                             </span>
                           </div>
                           {callEventSessionId && (
                             <div className="mt-2">
                               <Link
                                 href={`/dashboard/sessions/${callEventSessionId}`}
-                                className="inline-flex rounded-full border border-sky-300 bg-white px-3 py-1 text-[11px] font-semibold text-sky-700"
+                                className="inline-flex rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-[11px] font-semibold text-blue-300 transition hover:bg-blue-500/20"
                               >
                                 View Call Details
                               </Link>
@@ -483,15 +566,33 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
 
                   return (
                     <div key={item.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[80%] rounded-2xl px-3 py-2 shadow-sm ${isMine ? "bg-slate-900 text-white" : "border border-slate-200 bg-slate-50 text-slate-900"}`}>
-                        <div className={`flex items-center gap-2 text-[11px] ${isMine ? "text-slate-300" : "text-slate-500"}`}>
-                          <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${isMine ? "bg-white/10 text-white" : "bg-slate-200 text-slate-700"}`}>
+                      <div
+                        className={`max-w-[80%] rounded-2xl px-3 py-2 ${
+                          isMine
+                            ? "bg-gradient-to-br from-violet-600/80 to-blue-600/80 text-white"
+                            : "text-slate-200"
+                        }`}
+                        style={
+                          !isMine
+                            ? { background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.1)" }
+                            : {}
+                        }
+                      >
+                        <div className="flex items-center gap-2 text-[11px] opacity-70">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/15 text-[9px] font-bold">
                             {senderLabel.slice(0, 1)}
                           </span>
                           <span className="font-semibold">{senderLabel}</span>
-                          <span>{new Date(item.created_at).toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })}</span>
+                          <span>
+                            {new Date(item.created_at).toLocaleString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              day: "2-digit",
+                              month: "short",
+                            })}
+                          </span>
                         </div>
-                        <p className="mt-2 whitespace-pre-wrap break-words leading-6">{item.message}</p>
+                        <p className="mt-1.5 whitespace-pre-wrap break-words leading-6">{item.message}</p>
                       </div>
                     </div>
                   );
@@ -500,12 +601,17 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                 <div ref={messagesEndRef} />
               </div>
 
+              {/* Composer */}
               <div className="mt-3 flex gap-2">
                 <input
-                  className="flex-1 rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  className="input-dark flex-1"
                   value={composer}
                   onChange={(e) => setComposer(e.target.value)}
-                  placeholder={selectedThread.status === "active" ? "Type a message" : "Connection must be accepted before chat starts"}
+                  placeholder={
+                    selectedThread.status === "active"
+                      ? "Type a message..."
+                      : "Connection must be accepted before chat starts"
+                  }
                   disabled={selectedThread.status !== "active"}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -515,10 +621,11 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
                   }}
                 />
                 <button
-                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-sm font-bold text-white transition hover:from-violet-500 hover:to-blue-500 disabled:opacity-50"
                   onClick={() => void sendMessage()}
                   disabled={selectedThread.status !== "active"}
                 >
+                  <i className="fa-solid fa-paper-plane mr-1.5" />
                   Send
                 </button>
               </div>
@@ -529,7 +636,7 @@ export function ChatPanel({ role, mentorOptions = [], defaultMentorId = "", defa
         </div>
       </div>
 
-      {message && <p className="mt-3 text-sm text-slate-700">{message}</p>}
+      {message && <p className="mt-3 text-sm text-slate-400">{message}</p>}
     </article>
   );
 }

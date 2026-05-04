@@ -6,6 +6,7 @@ from ..core.rbac import Role
 from ..core.security import hash_password
 from ..models.category import Category
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
+from ..models.practice_test import PracticeQuestion, PracticeTest
 from ..models.profile import Profile
 from ..models.user import User
 from .storage_service import StorageService
@@ -30,6 +31,119 @@ DEFAULT_CATEGORIES = [
 
 DEFAULT_STUDENT_EXAMS = ",".join(slug for _, slug in DEFAULT_CATEGORIES)
 DEFAULT_MENTOR_EXAMS = "gate"
+
+DEFAULT_PRACTICE_QUESTION_TEMPLATES = [
+    {
+        "prompt": "During {category} preparation, what should you do first after finishing a mock test?",
+        "options": (
+            "Start a new mock immediately without reviewing mistakes",
+            "Review errors, classify weak areas, and revise those topics",
+            "Skip analysis and only note the final score",
+            "Change all study material at once",
+        ),
+        "correct": "B",
+        "explanation": "Mock analysis is most useful when it turns mistakes into targeted revision and action items.",
+    },
+    {
+        "prompt": "What is the best reason to maintain a revision tracker for {category} topics?",
+        "options": (
+            "To increase the number of books you own",
+            "To avoid solving any questions twice",
+            "To identify which topics have been revised and which still need attention",
+            "To memorize the timetable only once",
+        ),
+        "correct": "C",
+        "explanation": "A revision tracker gives visibility into coverage and helps schedule high-value revision cycles.",
+    },
+    {
+        "prompt": "If accuracy is dropping in {category} practice, what is the strongest corrective step?",
+        "options": (
+            "Increase speed further on every question",
+            "Review incorrect patterns and slow down on weak question types",
+            "Ignore accuracy and focus only on total attempts",
+            "Switch subjects every hour regardless of performance",
+        ),
+        "correct": "B",
+        "explanation": "Accuracy usually improves when recurring mistakes are reviewed and weak patterns are handled deliberately.",
+    },
+    {
+        "prompt": "Why should a student mix timed practice with concept revision for {category}?",
+        "options": (
+            "Because timing and conceptual recall both affect exam performance",
+            "Because timed practice removes the need for concept study",
+            "Because revision is useful only after the exam",
+            "Because concept study should happen only on weekends",
+        ),
+        "correct": "A",
+        "explanation": "Competitive exams reward both conceptual clarity and execution under time pressure.",
+    },
+    {
+        "prompt": "What is the best use of mentor feedback after a difficult {category} session?",
+        "options": (
+            "Store it without changing the study plan",
+            "Convert it into specific next actions for practice and revision",
+            "Wait until the next month to think about it",
+            "Use it only if it matches the easiest topic",
+        ),
+        "correct": "B",
+        "explanation": "Feedback matters only when it becomes concrete follow-up work in the study plan.",
+    },
+    {
+        "prompt": "A student is repeatedly forgetting solved concepts in {category}. What should they prioritize?",
+        "options": (
+            "A spaced revision cycle with short recall sessions",
+            "Buying more books without revising notes",
+            "Attempting only brand-new chapters",
+            "Avoiding mock tests until the final month",
+        ),
+        "correct": "A",
+        "explanation": "Spaced recall reduces forgetting and improves long-term retention of solved concepts.",
+    },
+    {
+        "prompt": "Which signal best shows that a {category} topic needs more practice?",
+        "options": (
+            "You like the chapter title",
+            "You answer correctly only when solutions are visible",
+            "You studied it once last month",
+            "It appears early in the syllabus",
+        ),
+        "correct": "B",
+        "explanation": "Real mastery shows up when you can solve accurately without depending on the solution.",
+    },
+    {
+        "prompt": "What is the most useful way to split a 2-hour {category} study block?",
+        "options": (
+            "Two hours of passive reading only",
+            "A mix of concept review, targeted questions, and short mistake analysis",
+            "Randomly switch topics every ten minutes",
+            "Spend the whole time organizing folders",
+        ),
+        "correct": "B",
+        "explanation": "Balanced blocks combine learning, application, and feedback instead of passive time spending.",
+    },
+    {
+        "prompt": "Why is attempt history valuable in a {category} practice-test module?",
+        "options": (
+            "It helps compare performance across repeated attempts",
+            "It removes the need for explanation review",
+            "It guarantees exam rank improvement automatically",
+            "It replaces mentorship completely",
+        ),
+        "correct": "A",
+        "explanation": "History makes progress visible and helps students judge whether revision is working over time.",
+    },
+    {
+        "prompt": "Before the next {category} test, what should a student do with topics that repeatedly go wrong?",
+        "options": (
+            "Ignore them and hope they disappear from the paper",
+            "Tag them as priority weak areas and revise their solving pattern",
+            "Delete related notes to reduce pressure",
+            "Attempt fewer questions from those topics forever",
+        ),
+        "correct": "B",
+        "explanation": "Weak areas need focused review, not avoidance, before the next timed attempt.",
+    },
+]
 
 
 def seed_default_users(db: Session) -> None:
@@ -228,6 +342,53 @@ def seed_default_users(db: Session) -> None:
             profile = Profile(user_id=admin.id)
             db.add(profile)
         profile.full_name = profile.full_name or "Demo Admin"
+
+    db.commit()
+
+    categories = db.query(Category).order_by(Category.name.asc()).all()
+    if admin and categories:
+        for category in categories:
+            test_title = f"{category.name} Foundation Practice Test"
+            existing_test = (
+                db.query(PracticeTest)
+                .filter(PracticeTest.category_id == category.id, PracticeTest.title == test_title)
+                .first()
+            )
+            if existing_test:
+                existing_test.question_count = (
+                    db.query(PracticeQuestion)
+                    .filter(PracticeQuestion.test_id == existing_test.id, PracticeQuestion.is_active == True)  # noqa: E712
+                    .count()
+                )
+                continue
+
+            test_row = PracticeTest(
+                category_id=category.id,
+                title=test_title,
+                description=f"Ten MCQs to help students measure preparation rhythm and revision quality for {category.name}.",
+                created_by_user_id=admin.id,
+                is_active=True,
+                is_published=True,
+                question_count=len(DEFAULT_PRACTICE_QUESTION_TEMPLATES),
+            )
+            db.add(test_row)
+            db.flush()
+
+            for index, template in enumerate(DEFAULT_PRACTICE_QUESTION_TEMPLATES, start=1):
+                db.add(
+                    PracticeQuestion(
+                        test_id=test_row.id,
+                        prompt=template["prompt"].format(category=category.name),
+                        option_a=template["options"][0],
+                        option_b=template["options"][1],
+                        option_c=template["options"][2],
+                        option_d=template["options"][3],
+                        correct_option=template["correct"],
+                        explanation=template["explanation"],
+                        position=index,
+                        is_active=True,
+                    )
+                )
 
     db.commit()
 

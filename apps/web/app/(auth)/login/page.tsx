@@ -3,6 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -11,7 +12,7 @@ import { useAuthStore } from "@/lib/auth-store";
 
 const schema = z.object({
   email: z.string().email(),
-  password: z.string().min(6)
+  password: z.string().min(6),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -20,8 +21,14 @@ export default function LoginPage() {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("mentorx_auth_redirecting");
+    }
+  }, []);
+
   const { register: formRegister, handleSubmit, formState } = useForm<FormValues>({
-    defaultValues: { email: "", password: "" }
+    defaultValues: { email: "", password: "" },
   });
 
   const mutation = useMutation({
@@ -32,39 +39,149 @@ export default function LoginPage() {
     onSuccess: (tokens) => {
       setSession(extractSession(tokens));
       router.push("/dashboard");
-    }
+    },
   });
 
   return (
-    <section className="mx-auto max-w-md space-y-4">
-      <div className="rounded-2xl bg-gradient-to-r from-teal-700 to-cyan-700 p-5 text-white shadow-lg">
-        <p className="text-xs font-semibold uppercase tracking-wider text-white/80">mentorXAI</p>
-        <h1 className="mt-1 text-2xl font-extrabold">Sign in</h1>
-        <p className="mt-1 text-sm text-white/85">Use your registered mentorXAI account.</p>
-      </div>
-      <div className="app-card p-6">
-      <form className="mt-6 space-y-4" onSubmit={handleSubmit((values) => mutation.mutate(values))}>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">Email</span>
-          <input className="w-full rounded-md border px-3 py-2" type="email" {...formRegister("email")} />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">Password</span>
-          <input className="w-full rounded-md border px-3 py-2" type="password" {...formRegister("password")} />
-        </label>
-        {mutation.isError && <p className="text-sm text-red-600">{(mutation.error as Error).message}</p>}
-        <button
-          type="submit"
-          disabled={mutation.isPending || formState.isSubmitting}
-          className="w-full rounded-md bg-accent px-4 py-2 font-semibold text-white disabled:opacity-50"
+    /* Full-screen dark background — pt-16 for the fixed nav */
+    <div
+      className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-4 pt-16"
+      style={{ background: "#05070f" }}
+    >
+      {/* Background radial glows */}
+      <div
+        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          width: 800,
+          height: 600,
+          background:
+            "radial-gradient(ellipse, rgba(124,58,237,0.15) 0%, rgba(59,130,246,0.08) 40%, transparent 70%)",
+          filter: "blur(60px)",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute -left-40 -top-40 rounded-full"
+        style={{
+          width: 500,
+          height: 500,
+          background: "rgba(124,58,237,0.08)",
+          filter: "blur(80px)",
+        }}
+      />
+      <div
+        className="pointer-events-none absolute -bottom-20 -right-20 rounded-full"
+        style={{
+          width: 400,
+          height: 400,
+          background: "rgba(59,130,246,0.07)",
+          filter: "blur(80px)",
+        }}
+      />
+
+      {/* Card */}
+      <div
+        className="relative w-full max-w-md rounded-[1.75rem] p-8"
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)",
+          backdropFilter: "blur(24px)",
+        }}
+      >
+        {/* Logo + heading */}
+        <div className="mb-8 text-center">
+          <Link href="/" className="mb-6 inline-flex items-center gap-2">
+            <div
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-black text-white"
+              style={{
+                background: "linear-gradient(135deg, #7c3aed, #3b82f6)",
+                boxShadow: "0 4px 16px rgba(124,58,237,0.5)",
+              }}
+            >
+              MX
+            </div>
+            <span
+              className="text-lg font-black"
+              style={{
+                background: "linear-gradient(135deg, #a78bfa 0%, #60a5fa 60%, #34d399 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              MentorX
+            </span>
+          </Link>
+
+          <h1 className="mt-2 text-2xl font-black text-white">Welcome back</h1>
+          <p className="mt-1 text-sm text-slate-500">Sign in to your mentorXAI account</p>
+        </div>
+
+        {/* Form */}
+        <form
+          className="space-y-5"
+          onSubmit={handleSubmit((values) => mutation.mutate(values))}
         >
-          {mutation.isPending ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
-      <p className="mt-4 text-sm text-black/70">
-        New here? <Link className="font-semibold text-accent" href="/register">Create an account</Link>
-      </p>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Email
+            </span>
+            <input
+              className="input-dark"
+              type="email"
+              placeholder="you@example.com"
+              {...formRegister("email")}
+            />
+          </label>
+
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Password
+            </span>
+            <input
+              className="input-dark"
+              type="password"
+              placeholder="••••••••"
+              {...formRegister("password")}
+            />
+          </label>
+
+          {mutation.isError && (
+            <div
+              className="rounded-xl px-4 py-3 text-sm text-rose-300"
+              style={{
+                background: "rgba(244,63,94,0.1)",
+                border: "1px solid rgba(244,63,94,0.25)",
+              }}
+            >
+              {(mutation.error as Error).message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={mutation.isPending || formState.isSubmitting}
+            className="cta-shimmer relative w-full rounded-xl py-3 text-sm font-bold text-white transition disabled:opacity-50"
+            style={{
+              background: "linear-gradient(135deg, #7c3aed, #3b82f6)",
+              boxShadow: "0 4px 20px rgba(124,58,237,0.4)",
+            }}
+          >
+            {mutation.isPending ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+
+        {/* Footer link */}
+        <p className="mt-6 text-center text-sm text-slate-500">
+          New here?{" "}
+          <Link
+            href="/register"
+            className="font-semibold text-violet-400 transition hover:text-violet-300"
+          >
+            Create an account
+          </Link>
+        </p>
       </div>
-    </section>
+    </div>
   );
 }
