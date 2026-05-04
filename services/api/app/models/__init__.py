@@ -16,6 +16,24 @@ from .category import Category
 from .chat_thread import ChatThread, ChatThreadStatus
 from .chat_message import ChatMessage
 from .practice_test import PracticeAttempt, PracticeAttemptAnswer, PracticeQuestion, PracticeTest
+from .ai_prep import (
+    AIChatMessage,
+    AIChatMode,
+    AIChatRole,
+    AIChatSession,
+    AIChatSessionStatus,
+    AIStudyAction,
+    Course,
+    CourseStatus,
+    CurrentLevel,
+    EnrollmentStatus,
+    LearningMemoryType,
+    StudentCourseEnrollment,
+    StudentLearningMemory,
+    StudyActionPriority,
+    StudyActionStatus,
+    Subject,
+)
 
 __all__ = [
     "User",
@@ -46,4 +64,20 @@ __all__ = [
     "PracticeQuestion",
     "PracticeAttempt",
     "PracticeAttemptAnswer",
+    "Course",
+    "CourseStatus",
+    "Subject",
+    "StudentCourseEnrollment",
+    "EnrollmentStatus",
+    "CurrentLevel",
+    "AIChatSession",
+    "AIChatMode",
+    "AIChatSessionStatus",
+    "AIChatMessage",
+    "AIChatRole",
+    "StudentLearningMemory",
+    "LearningMemoryType",
+    "AIStudyAction",
+    "StudyActionPriority",
+    "StudyActionStatus",
 ]

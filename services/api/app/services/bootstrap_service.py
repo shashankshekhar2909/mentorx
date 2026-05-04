@@ -5,6 +5,7 @@ from ..core.config import settings
 from ..core.rbac import Role
 from ..core.security import hash_password
 from ..models.category import Category
+from ..models.ai_prep import Course, CourseStatus, CurrentLevel, EnrollmentStatus, StudentCourseEnrollment, Subject
 from ..models.mentor_profile import MentorProfile, MentorVerificationStatus
 from ..models.practice_test import PracticeQuestion, PracticeTest
 from ..models.profile import Profile
@@ -390,7 +391,7 @@ def seed_default_users(db: Session) -> None:
                     )
                 )
 
-    db.commit()
+    seed_default_courses_and_ai_chat_data(db, users_by_email)
 
 
 def ensure_storage_bucket() -> None:
@@ -398,3 +399,67 @@ def ensure_storage_bucket() -> None:
         return
     storage = StorageService()
     storage.ensure_bucket()
+
+
+def seed_default_courses_and_ai_chat_data(db: Session, users_by_email: dict[str, User]) -> None:
+    course = db.query(Course).filter(Course.name == "UPPSC").first()
+    if not course:
+        course = Course(
+            name="UPPSC",
+            exam_type="State PSC",
+            description="UPPSC General Studies preparation track",
+            status=CourseStatus.active,
+        )
+        db.add(course)
+        db.flush()
+
+    default_subjects = [
+        ("History", "Ancient, medieval, and modern history aligned to UPPSC", 1),
+        ("Polity", "Constitution, governance, and public administration basics", 2),
+        ("Geography", "Physical and Indian geography for prelims/mains", 3),
+        ("Economy", "Indian economy fundamentals and policy topics", 4),
+        ("Current Affairs", "National/state current events and issue analysis", 5),
+        ("CSAT", "Aptitude, reasoning, and comprehension practice", 6),
+    ]
+
+    for name, description, priority in default_subjects:
+        existing_subject = (
+            db.query(Subject)
+            .filter(Subject.course_id == course.id, Subject.name == name)
+            .first()
+        )
+        if existing_subject:
+            continue
+        db.add(
+            Subject(
+                course_id=course.id,
+                name=name,
+                description=description,
+                syllabus=description,
+                priority=priority,
+            )
+        )
+
+    student = users_by_email.get("student.demo@exammentor.com")
+    if student:
+        enrollment = (
+            db.query(StudentCourseEnrollment)
+            .filter(
+                StudentCourseEnrollment.student_id == student.id,
+                StudentCourseEnrollment.course_id == course.id,
+            )
+            .first()
+        )
+        if not enrollment:
+            db.add(
+                StudentCourseEnrollment(
+                    student_id=student.id,
+                    course_id=course.id,
+                    current_level=CurrentLevel.beginner,
+                    daily_study_time_minutes=120,
+                    status=EnrollmentStatus.active,
+                    preferences={"focus": "balanced"},
+                )
+            )
+
+    db.commit()

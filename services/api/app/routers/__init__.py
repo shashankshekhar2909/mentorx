@@ -1,4 +1,4 @@
-from . import admin, ai, auth, bookings, categories, chats, mentors, notifications, payments, practice, resources, reviews, sessions, uploads, users, webhooks
+from . import admin, ai, ai_chat, auth, bookings, categories, chats, mentors, notifications, payments, practice, resources, reviews, sessions, uploads, users, webhooks
 
 __all__ = [
     "auth",
@@ -17,4 +17,5 @@ __all__ = [
     "notifications",
     "admin",
     "ai",
+    "ai_chat",
 ]

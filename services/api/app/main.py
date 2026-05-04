@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
 from .core.database import Base, SessionLocal, engine
-from .routers import admin, ai, auth, bookings, categories, chats, mentors, notifications, payments, practice, resources, reviews, sessions, uploads, users, webhooks
+from .routers import admin, ai, ai_chat, auth, bookings, categories, chats, mentors, notifications, payments, practice, resources, reviews, sessions, uploads, users, webhooks
 from .services.bootstrap_service import ensure_storage_bucket, seed_default_users
 
 
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router, prefix=settings.api_prefix)
     app.include_router(admin.router, prefix=settings.api_prefix)
     app.include_router(ai.router, prefix=settings.api_prefix)
+    app.include_router(ai_chat.router, prefix=settings.api_prefix)
 
     @app.on_event("startup")
     def on_startup() -> None:

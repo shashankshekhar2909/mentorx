@@ -39,6 +39,10 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
 
+    litellm_base_url: str = "http://litellm:4000/v1"
+    litellm_api_key: str = "change-me"
+    default_chat_model: str = "groq/llama-3.3-70b-versatile"
+
     razorpay_key_id: str | None = None
     razorpay_key_secret: str | None = None
     razorpay_webhook_secret: str | None = None
