@@ -35,6 +35,7 @@ type SessionInfo = {
   actual_ended_at?: string | null;
   actual_duration_seconds?: number;
   call_overlap_started_at?: string | null;
+  is_instant?: boolean;
   status: string;
 };
 

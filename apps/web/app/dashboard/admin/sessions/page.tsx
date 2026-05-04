@@ -30,6 +30,14 @@ type RecordingState = {
   visible_to_student?: boolean;
 };
 
+type RecordingApiRow = {
+  id: string | number;
+  session_id: string | number;
+  status: string;
+  playback_url?: string | null;
+  visible_to_student?: boolean;
+};
+
 type StudentGroup = {
   student_id: string;
   student_name: string;
@@ -80,7 +88,7 @@ export default function AdminSessionsPage() {
       setRecordings({});
       return;
     }
-    const recordingItems = Array.isArray(recordingData?.items) ? recordingData.items : [];
+    const recordingItems: RecordingApiRow[] = Array.isArray(recordingData?.items) ? (recordingData.items as RecordingApiRow[]) : [];
     setRecordings(
       Object.fromEntries(
         recordingItems.map((row) => [
